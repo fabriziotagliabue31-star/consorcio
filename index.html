@@ -75,6 +75,22 @@
   .step-row{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);align-items:flex-start;}
   .step-row:last-child{border-bottom:none;}
   .step-num{font-weight:700;color:var(--accent);width:22px;flex-shrink:0;font-size:15px;}
+
+  .toast-container{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:1000;display:flex;flex-direction:column;gap:8px;align-items:center;}
+  .toast{background:var(--text);color:#fff;padding:10px 20px;border-radius:999px;font-size:13px;box-shadow:0 6px 18px rgba(0,0,0,0.18);opacity:0;transform:translateY(10px);transition:opacity .2s ease, transform .2s ease;max-width:90vw;text-align:center;}
+  .toast.show{opacity:1;transform:translateY(0);}
+  .toast.error{background:var(--danger);}
+  .toast.success{background:var(--success);}
+
+  .loading-overlay{position:fixed;inset:0;background:rgba(242,248,252,0.9);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:1100;}
+  .spinner{width:34px;height:34px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:vertag-spin .8s linear infinite;}
+  @keyframes vertag-spin{to{transform:rotate(360deg);}}
+  .loading-text{font-size:14px;color:var(--text2);font-weight:500;}
+
+  .confirm-overlay{position:fixed;inset:0;background:rgba(20,30,38,0.4);display:flex;align-items:center;justify-content:center;z-index:1200;padding:1rem;}
+  .confirm-box{background:var(--card);border-radius:12px;padding:1.5rem;max-width:340px;width:100%;}
+  .confirm-box p{font-size:14px;margin:0 0 1.25rem;color:var(--text);}
+  .confirm-actions{display:flex;gap:8px;justify-content:flex-end;}
 </style>
 </head>
 <body>
@@ -338,6 +354,32 @@
   </main>
 </div>
 
+<div id="toast-container" class="toast-container"></div>
+<div id="loading-overlay" class="loading-overlay hidden">
+  <div class="spinner"></div>
+  <p class="loading-text" id="loading-text">Cargando...</p>
+</div>
+<div id="confirm-overlay" class="confirm-overlay hidden">
+  <div class="confirm-box">
+    <p id="confirm-message"></p>
+    <div class="confirm-actions">
+      <button id="confirm-cancel">Cancelar</button>
+      <button class="primary" id="confirm-accept">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<div id="prompt-overlay" class="confirm-overlay hidden">
+  <div class="confirm-box">
+    <p id="prompt-message"></p>
+    <input type="number" id="prompt-input" step="0.00001" min="0" style="width:100%;margin-bottom:1.25rem;" />
+    <div class="confirm-actions">
+      <button id="prompt-cancel">Cancelar</button>
+      <button class="primary" id="prompt-accept">Asignar</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const SUPABASE_URL = 'https://sqafmrcoshkxbtledyij.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_r_b6XWYYo-v_03RjcvJA6w_0QKHIvD6';
@@ -349,6 +391,72 @@ let periodosActuales = [];
 let categoriasActuales = [];
 let currentView = 'dashboard';
 const TITULOS = { dashboard:'Dashboard', unidades:'Unidades', gastos:'Gastos', periodos:'Períodos', liquidaciones:'Liquidaciones', cobranza:'Cobranza', configuracion:'Configuración', acerca:'Acerca de' };
+
+function mostrarToast(mensaje, tipo) {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = 'toast' + (tipo === 'error' ? ' error' : tipo === 'success' ? ' success' : '');
+  toast.textContent = mensaje;
+  container.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add('show'));
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => toast.remove(), 250);
+  }, 4200);
+}
+
+function mostrarCargando(mensaje) {
+  document.getElementById('loading-text').textContent = mensaje || 'Cargando...';
+  document.getElementById('loading-overlay').classList.remove('hidden');
+}
+
+function ocultarCargando() {
+  document.getElementById('loading-overlay').classList.add('hidden');
+}
+
+function mostrarConfirmacion(mensaje) {
+  return new Promise((resolve) => {
+    document.getElementById('confirm-message').textContent = mensaje;
+    const overlay = document.getElementById('confirm-overlay');
+    overlay.classList.remove('hidden');
+    const accept = document.getElementById('confirm-accept');
+    const cancel = document.getElementById('confirm-cancel');
+    const cleanup = (resultado) => {
+      overlay.classList.add('hidden');
+      accept.onclick = null;
+      cancel.onclick = null;
+      resolve(resultado);
+    };
+    accept.onclick = () => cleanup(true);
+    cancel.onclick = () => cleanup(false);
+  });
+}
+
+function mostrarPrompt(mensaje, valorInicial) {
+  return new Promise((resolve) => {
+    document.getElementById('prompt-message').textContent = mensaje;
+    const input = document.getElementById('prompt-input');
+    input.value = valorInicial ?? '';
+    const overlay = document.getElementById('prompt-overlay');
+    overlay.classList.remove('hidden');
+    setTimeout(() => input.focus(), 50);
+
+    const accept = document.getElementById('prompt-accept');
+    const cancel = document.getElementById('prompt-cancel');
+
+    const cleanup = (resultado) => {
+      overlay.classList.add('hidden');
+      accept.onclick = null;
+      cancel.onclick = null;
+      input.onkeydown = null;
+      resolve(resultado);
+    };
+
+    accept.onclick = () => cleanup(input.value);
+    cancel.onclick = () => cleanup(null);
+    input.onkeydown = (e) => { if (e.key === 'Enter') cleanup(input.value); };
+  });
+}
 
 async function iniciarSesion() {
   const email = document.getElementById('login-email').value;
@@ -394,7 +502,7 @@ async function mostrarApp() {
   document.getElementById('app-screen').classList.remove('hidden');
 
   const { data, error } = await client.from('consorcios').select('id, nombre').order('nombre');
-  if (error) { alert('Error cargando consorcios: ' + error.message); return; }
+  if (error) { mostrarToast('Error cargando consorcios: ' + error.message, 'error'); return; }
 
   const select = document.getElementById('consorcio-select');
   select.innerHTML = data.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('')
@@ -427,7 +535,7 @@ async function cargarDashboard() {
   let saldos = [];
   if (ids.length > 0) {
     const { data, error } = await client.from('v_saldo_cuenta_corriente').select('unidad_funcional_id, saldo').in('unidad_funcional_id', ids);
-    if (error) { alert('Error cargando saldos: ' + error.message); return; }
+    if (error) { mostrarToast('Error cargando saldos: ' + error.message, 'error'); return; }
     saldos = data;
   }
   const saldoPorUnidad = Object.fromEntries(saldos.map(s => [s.unidad_funcional_id, s.saldo]));
@@ -452,7 +560,7 @@ async function cargarUnidadesView() {
   let coeficientes = [];
   if (ids.length > 0) {
     const { data, error } = await client.from('v_coeficiente_vigente').select('unidad_funcional_id, coeficiente').in('unidad_funcional_id', ids);
-    if (error) { alert('Error cargando coeficientes: ' + error.message); return; }
+    if (error) { mostrarToast('Error cargando coeficientes: ' + error.message, 'error'); return; }
     coeficientes = data;
   }
   const coefPorUnidad = Object.fromEntries(coeficientes.map(c => [c.unidad_funcional_id, c.coeficiente]));
@@ -462,8 +570,21 @@ async function cargarUnidadesView() {
     const info = coef
       ? `<span class="badge ok">Coef. ${coef}</span>`
       : `<button onclick="asignarCoeficiente('${u.id}')">Asignar coeficiente</button>`;
-    return `<div class="row"><span>${u.identificador}</span>${info}</div>`;
+    return `<div class="row"><span>${u.identificador}</span><span style="display:flex;gap:8px;align-items:center;">${info}<button onclick="eliminarUnidad('${u.id}', '${u.identificador}')">Eliminar</button></span></div>`;
   }).join('') || '<p class="muted-note">Todavía no hay unidades.</p>';
+}
+
+async function eliminarUnidad(unidadId, identificador) {
+  const confirmado = await mostrarConfirmacion(`¿Eliminar la unidad "${identificador}"? Va a dejar de aparecer en todo el sistema. Si ya tiene liquidaciones o pagos, ese historial se conserva de todos modos.`);
+  if (!confirmado) return;
+
+  mostrarCargando('Eliminando unidad...');
+  const { error } = await client.from('unidades_funcionales').update({ activa: false }).eq('id', unidadId);
+  await cambiarConsorcio();
+  ocultarCargando();
+
+  if (error) { mostrarToast('Error eliminando la unidad: ' + error.message, 'error'); return; }
+  mostrarToast(`Unidad "${identificador}" eliminada.`, 'success');
 }
 
 function descargarPlantillaUnidades() {
@@ -483,6 +604,7 @@ async function importarUnidadesDesdeArchivo(event) {
   if (!file) return;
   const errorEl = document.getElementById('uv-import-error');
   errorEl.classList.add('hidden');
+  mostrarCargando('Importando unidades...');
 
   try {
     const buffer = await file.arrayBuffer();
@@ -491,6 +613,7 @@ async function importarUnidadesDesdeArchivo(event) {
     const filas = XLSX.utils.sheet_to_json(ws);
 
     if (filas.length === 0) {
+      ocultarCargando();
       errorEl.textContent = 'El archivo no tiene filas para importar.';
       errorEl.classList.remove('hidden');
       return;
@@ -524,13 +647,16 @@ async function importarUnidadesDesdeArchivo(event) {
 
     event.target.value = '';
     await cambiarConsorcio();
+    ocultarCargando();
 
     if (fallos.length > 0) {
-      alert(`Se importaron ${exitos} unidades. Hubo ${fallos.length} problema(s):\n` + fallos.join('\n'));
+      mostrarToast(`Se importaron ${exitos} unidades, con ${fallos.length} problema(s) — revisá la consola para el detalle.`, 'error');
+      console.warn('Problemas al importar:', fallos);
     } else {
-      alert(`Se importaron ${exitos} unidades correctamente.`);
+      mostrarToast(`Se importaron ${exitos} unidades correctamente.`, 'success');
     }
   } catch (err) {
+    ocultarCargando();
     console.error(err);
     errorEl.textContent = 'No se pudo leer el archivo: ' + (err?.message || err);
     errorEl.classList.remove('hidden');
@@ -548,19 +674,24 @@ async function crearUnidad(event) {
 
   document.getElementById('uv-identificador').value = '';
   await cambiarConsorcio();
+  mostrarToast('Unidad creada.', 'success');
 }
 
 async function asignarCoeficiente(unidadId) {
-  const valor = parseFloat(prompt('Coeficiente (ej: 0.05421):'));
-  if (!valor || valor <= 0) return;
+  const valorStr = await mostrarPrompt('Ingresá el coeficiente de esta unidad (ej: 0.05421):');
+  if (valorStr === null) return;
+
+  const valor = parseFloat(valorStr);
+  if (!valor || valor <= 0) { mostrarToast('El coeficiente tiene que ser un número mayor a 0.', 'error'); return; }
 
   const { error } = await client.from('coeficientes_historial').insert({
     unidad_funcional_id: unidadId,
     coeficiente: valor,
     vigente_desde: new Date().toISOString().slice(0, 10),
   });
-  if (error) { alert('Error asignando coeficiente: ' + error.message); return; }
+  if (error) { mostrarToast('Error asignando coeficiente: ' + error.message, 'error'); return; }
   await cargarUnidadesView();
+  mostrarToast('Coeficiente asignado.', 'success');
 }
 
 async function cargarGastosView() {
@@ -584,7 +715,7 @@ async function cargarGastosLista() {
     .select('id, descripcion, monto, tipo, categorias_gasto(nombre)')
     .eq('periodo_id', periodoId)
     .order('fecha_comprobante', { ascending: false });
-  if (error) { alert('Error cargando gastos: ' + error.message); return; }
+  if (error) { mostrarToast('Error cargando gastos: ' + error.message, 'error'); return; }
 
   lista.innerHTML = data.map(g => `
     <div class="row">
@@ -616,6 +747,7 @@ async function cargarGasto(event) {
   document.getElementById('gv-descripcion').value = '';
   document.getElementById('gv-monto').value = '';
   await cargarGastosLista();
+  mostrarToast('Gasto cargado.', 'success');
 }
 
 async function cargarPeriodosView() {
@@ -661,6 +793,7 @@ async function cargarLiquidacionesLista() {
 }
 
 async function descargarPdfLiquidacion(liquidacionId) {
+  mostrarCargando('Generando PDF...');
   try {
     const { data: liq, error: e1 } = await client
       .from('liquidaciones')
@@ -685,7 +818,7 @@ async function descargarPdfLiquidacion(liquidacionId) {
     const unidad = ru.data, periodo = rp.data, consorcio = rc.data, detalle = rd.data;
 
     if (!window.jspdf || !window.jspdf.jsPDF) {
-      alert('No se pudo cargar la libreria de PDF (jsPDF). Revisa tu conexion a internet y recarga la pagina.');
+      mostrarToast('No se pudo cargar la libreria de PDF. Revisá tu conexión a internet y recargá la página.', 'error');
       return;
     }
     const { jsPDF } = window.jspdf;
@@ -706,7 +839,7 @@ async function descargarPdfLiquidacion(liquidacionId) {
     doc.text(`Unidad: ${unidad.identificador}`, 14, 41);
 
     if (typeof doc.autoTable !== 'function') {
-      alert('No se pudo cargar el plugin de tablas del PDF (jspdf-autotable). Revisa tu conexion a internet y recarga la pagina.');
+      mostrarToast('No se pudo cargar el plugin de tablas del PDF. Revisá tu conexión a internet y recargá la página.', 'error');
       return;
     }
 
@@ -725,9 +858,12 @@ async function descargarPdfLiquidacion(liquidacionId) {
     });
 
     doc.save(`liquidacion_${unidad.identificador}_${periodo.mes}-${periodo.anio}.pdf`);
+    mostrarToast('PDF descargado.', 'success');
   } catch (err) {
     console.error(err);
-    alert('Error generando el PDF: ' + (err?.message || JSON.stringify(err)));
+    mostrarToast('Error generando el PDF: ' + (err?.message || JSON.stringify(err)), 'error');
+  } finally {
+    ocultarCargando();
   }
 }
 
@@ -742,14 +878,20 @@ async function crearPeriodo(event) {
   if (error) { errorEl.textContent = error.message; errorEl.classList.remove('hidden'); return; }
 
   await cambiarConsorcio();
+  mostrarToast('Período creado.', 'success');
 }
 
 async function generarLiquidaciones(periodoId) {
-  if (!confirm('¿Generar liquidaciones para este período? Esto lo cierra.')) return;
+  const confirmado = await mostrarConfirmacion('¿Generar liquidaciones para este período? Esto lo cierra y no se puede deshacer.');
+  if (!confirmado) return;
+
+  mostrarCargando('Generando liquidaciones...');
   const { error } = await client.rpc('fn_generar_liquidaciones_periodo', { p_periodo_id: periodoId });
-  if (error) { alert('Error generando liquidaciones: ' + error.message); return; }
-  alert('Liquidaciones generadas correctamente.');
   await cambiarConsorcio();
+  ocultarCargando();
+
+  if (error) { mostrarToast('Error generando liquidaciones: ' + error.message, 'error'); return; }
+  mostrarToast('Liquidaciones generadas correctamente.', 'success');
 }
 
 async function cargarCobranzaView() {
@@ -767,7 +909,7 @@ async function cargarCobranzaView() {
     .in('unidad_funcional_id', ids)
     .order('fecha_pago', { ascending: false })
     .limit(20);
-  if (error) { alert('Error cargando pagos: ' + error.message); return; }
+  if (error) { mostrarToast('Error cargando pagos: ' + error.message, 'error'); return; }
 
   lista.innerHTML = data.map(p => `
     <div class="row">
@@ -778,61 +920,73 @@ async function cargarCobranzaView() {
 }
 
 async function descargarReciboPago(pagoId) {
-  const { data: pago, error: e1 } = await client
-    .from('pagos')
-    .select('id, monto, fecha_pago, metodo_pago, unidad_funcional_id')
-    .eq('id', pagoId)
-    .single();
-  if (e1) { alert('Error cargando el pago: ' + e1.message); return; }
+  mostrarCargando('Generando recibo...');
+  try {
+    const { data: pago, error: e1 } = await client
+      .from('pagos')
+      .select('id, monto, fecha_pago, metodo_pago, unidad_funcional_id')
+      .eq('id', pagoId)
+      .single();
+    if (e1) throw e1;
 
-  const [{ data: unidad }, { data: consorcio }] = await Promise.all([
-    client.from('unidades_funcionales').select('identificador').eq('id', pago.unidad_funcional_id).single().then(r => r),
-    client.from('consorcios').select('nombre, direccion').eq('id', consorcioActual).single().then(r => r),
-  ]);
+    const [ru, rc] = await Promise.all([
+      client.from('unidades_funcionales').select('identificador').eq('id', pago.unidad_funcional_id).single(),
+      client.from('consorcios').select('nombre, direccion').eq('id', consorcioActual).single(),
+    ]);
+    if (ru.error) throw ru.error;
+    if (rc.error) throw rc.error;
+    const unidad = ru.data, consorcio = rc.data;
 
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
 
-  doc.setFontSize(14);
-  doc.text(consorcio.nombre, 14, 18);
-  if (consorcio.direccion) {
-    doc.setFontSize(10);
-    doc.setTextColor(120);
-    doc.text(consorcio.direccion, 14, 24);
-  }
+    doc.setFontSize(14);
+    doc.text(consorcio.nombre, 14, 18);
+    if (consorcio.direccion) {
+      doc.setFontSize(10);
+      doc.setTextColor(120);
+      doc.text(consorcio.direccion, 14, 24);
+    }
 
-  doc.setFontSize(12);
-  doc.setTextColor(0);
-  doc.text('Recibo de pago', 14, 36);
-
-  const metodoLegible = {
-    transferencia: 'Transferencia',
-    efectivo: 'Efectivo',
-    debito_automatico: 'Debito automatico',
-  }[pago.metodo_pago] || pago.metodo_pago || '';
-
-  const lineas = [
-    ['Unidad', unidad.identificador],
-    ['Fecha de pago', pago.fecha_pago],
-    ['Metodo', metodoLegible],
-    ['Monto', '$' + Number(pago.monto).toLocaleString('es-AR')],
-  ];
-
-  doc.setFontSize(10);
-  let y = 48;
-  lineas.forEach(([label, valor]) => {
-    doc.setTextColor(107, 106, 99);
-    doc.text(label, 14, y);
+    doc.setFontSize(12);
     doc.setTextColor(0);
-    doc.text(String(valor), 60, y);
-    y += 8;
-  });
+    doc.text('Recibo de pago', 14, 36);
 
-  doc.setFontSize(9);
-  doc.setTextColor(150);
-  doc.text(`Comprobante N. ${pago.id.slice(0, 8).toUpperCase()}`, 14, y + 8);
+    const metodoLegible = {
+      transferencia: 'Transferencia',
+      efectivo: 'Efectivo',
+      debito_automatico: 'Debito automatico',
+    }[pago.metodo_pago] || pago.metodo_pago || '';
 
-  doc.save(`recibo_${unidad.identificador}_${pago.fecha_pago}.pdf`);
+    const lineas = [
+      ['Unidad', unidad.identificador],
+      ['Fecha de pago', pago.fecha_pago],
+      ['Metodo', metodoLegible],
+      ['Monto', '$' + Number(pago.monto).toLocaleString('es-AR')],
+    ];
+
+    doc.setFontSize(10);
+    let y = 48;
+    lineas.forEach(([label, valor]) => {
+      doc.setTextColor(107, 106, 99);
+      doc.text(label, 14, y);
+      doc.setTextColor(0);
+      doc.text(String(valor), 60, y);
+      y += 8;
+    });
+
+    doc.setFontSize(9);
+    doc.setTextColor(150);
+    doc.text(`Comprobante N. ${pago.id.slice(0, 8).toUpperCase()}`, 14, y + 8);
+
+    doc.save(`recibo_${unidad.identificador}_${pago.fecha_pago}.pdf`);
+    mostrarToast('Recibo descargado.', 'success');
+  } catch (err) {
+    console.error(err);
+    mostrarToast('Error generando el recibo: ' + (err?.message || err), 'error');
+  } finally {
+    ocultarCargando();
+  }
 }
 
 async function registrarPago(event) {
@@ -851,6 +1005,7 @@ async function registrarPago(event) {
 
   document.getElementById('cv-monto').value = '';
   await cargarCobranzaView();
+  mostrarToast('Pago registrado.', 'success');
 }
 
 async function cargarConfiguracionView() {
@@ -885,8 +1040,9 @@ async function guardarCategoria(id) {
   const tipo_prorrateo = document.getElementById('edit-tipo-' + id).value;
 
   const { error } = await client.from('categorias_gasto').update({ nombre, tipo_prorrateo }).eq('id', id);
-  if (error) { alert('Error actualizando categoría: ' + error.message); return; }
+  if (error) { mostrarToast('Error actualizando categoría: ' + error.message, 'error'); return; }
   await cambiarConsorcio();
+  mostrarToast('Categoría actualizada.', 'success');
 }
 
 async function crearCategoria(event) {
@@ -904,9 +1060,11 @@ async function crearCategoria(event) {
 
   document.getElementById('cf-nombre').value = '';
   await cambiarConsorcio();
+  mostrarToast('Categoría creada.', 'success');
 }
 
 async function exportarTodo() {
+  mostrarCargando('Preparando el Excel...');
   try {
     const ids = unidadesActuales.map(u => u.id);
     const idToNombre = Object.fromEntries(unidadesActuales.map(u => [u.id, u.identificador]));
@@ -965,9 +1123,12 @@ async function exportarTodo() {
       .replace(/[^a-zA-Z0-9]+/g, '_');
     const fecha = new Date().toISOString().slice(0, 10);
     XLSX.writeFile(wb, `backup_vertag_${nombreConsorcio}_${fecha}.xlsx`);
+    mostrarToast('Excel exportado correctamente.', 'success');
   } catch (err) {
     console.error(err);
-    alert('Error exportando: ' + (err?.message || err));
+    mostrarToast('Error exportando: ' + (err?.message || err), 'error');
+  } finally {
+    ocultarCargando();
   }
 }
 
