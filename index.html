@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Panel de administración de consorcios</title>
+<title>VERTAG — Administración de consorcios</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -12,10 +12,10 @@
 <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.5.25/dist/jspdf.plugin.autotable.min.js"></script>
 <style>
   :root{
-    --bg:#F6F5F1; --card:#FFFFFF; --tile:#F1EFE8;
-    --text:#232220; --text2:#6B6A63; --muted:#9B9A92;
-    --border:#E5E3DB;
-    --accent:#0F5C4E; --accent-bg:#E4F0ED;
+    --bg:#F2F8FC; --card:#FFFFFF; --tile:#E7F2FB;
+    --text:#1D2B36; --text2:#5C7182; --muted:#8FA3B3;
+    --border:#DCEAF6;
+    --accent:#0B6FB0; --accent-bg:#E1F0FB;
     --danger:#A32D2D; --danger-bg:#FCEBEB;
     --success:#3B6D11; --success-bg:#EAF3DE;
     --warning:#8A5A12; --warning-bg:#FAEEDA;
@@ -33,8 +33,12 @@
   .error{color:var(--danger);font-size:13px;margin-top:8px;}
   .muted-note{color:var(--muted);font-size:13px;}
 
-  .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;}
-  .login-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:2rem;width:100%;max-width:340px;}
+  .login-wrap{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;overflow:hidden;background:linear-gradient(180deg, #EAF5FC 0%, #D3EAFA 100%);}
+  .login-skyline{position:absolute;bottom:0;left:0;width:100%;height:42%;opacity:0.9;}
+  .login-brand{position:relative;z-index:1;text-align:center;margin-bottom:1.5rem;}
+  .login-brand .wordmark{font-size:30px;font-weight:700;color:var(--accent);letter-spacing:0.5px;}
+  .login-brand .tagline{font-size:13px;color:var(--text2);margin-top:2px;}
+  .login-card{position:relative;z-index:1;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:2rem;width:100%;max-width:340px;}
   .login-card input{width:100%;margin:6px 0 14px;}
 
   .shell{display:flex;min-height:100vh;}
@@ -66,11 +70,42 @@
 
   form.inline{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-top:0.75rem;}
   form.inline label{display:flex;flex-direction:column;font-size:12px;color:var(--text2);gap:4px;}
+
+  .step-row{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);align-items:flex-start;}
+  .step-row:last-child{border-bottom:none;}
+  .step-num{font-weight:700;color:var(--accent);width:22px;flex-shrink:0;font-size:15px;}
 </style>
 </head>
 <body>
 
 <div id="login-screen" class="login-wrap">
+  <svg class="login-skyline" viewBox="0 0 1200 280" preserveAspectRatio="xMidYMax slice" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <rect x="0" y="180" width="80" height="100" fill="#CFE6F8"/>
+    <rect x="90" y="130" width="60" height="150" fill="#B7D9F2"/>
+    <rect x="160" y="160" width="100" height="120" fill="#CFE6F8"/>
+    <rect x="270" y="90" width="70" height="190" fill="#9DCBEE"/>
+    <rect x="350" y="150" width="90" height="130" fill="#B7D9F2"/>
+    <rect x="450" y="110" width="60" height="170" fill="#CFE6F8"/>
+    <rect x="520" y="60" width="80" height="220" fill="#7FBBE8"/>
+    <rect x="610" y="140" width="100" height="140" fill="#B7D9F2"/>
+    <rect x="720" y="100" width="70" height="180" fill="#9DCBEE"/>
+    <rect x="800" y="170" width="90" height="110" fill="#CFE6F8"/>
+    <rect x="900" y="120" width="60" height="160" fill="#B7D9F2"/>
+    <rect x="970" y="80" width="80" height="200" fill="#7FBBE8"/>
+    <rect x="1060" y="150" width="70" height="130" fill="#CFE6F8"/>
+    <rect x="1140" y="110" width="60" height="170" fill="#9DCBEE"/>
+    <g fill="#FFFFFF" opacity="0.55">
+      <rect x="530" y="80" width="8" height="8"/><rect x="550" y="80" width="8" height="8"/><rect x="570" y="80" width="8" height="8"/>
+      <rect x="530" y="105" width="8" height="8"/><rect x="550" y="105" width="8" height="8"/><rect x="570" y="105" width="8" height="8"/>
+      <rect x="530" y="130" width="8" height="8"/><rect x="550" y="130" width="8" height="8"/><rect x="570" y="130" width="8" height="8"/>
+      <rect x="980" y="100" width="8" height="8"/><rect x="1000" y="100" width="8" height="8"/><rect x="1020" y="100" width="8" height="8"/>
+      <rect x="980" y="125" width="8" height="8"/><rect x="1000" y="125" width="8" height="8"/><rect x="1020" y="125" width="8" height="8"/>
+    </g>
+  </svg>
+  <div class="login-brand">
+    <div class="wordmark">VERTAG</div>
+    <div class="tagline">Administración de consorcios</div>
+  </div>
   <div class="login-card">
     <h1 style="margin-bottom:1.25rem;">Iniciar sesión</h1>
     <label style="font-size:13px;color:var(--text2);">Email</label>
@@ -86,7 +121,7 @@
   <aside class="sidebar">
     <div class="brand">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V5a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v16"/><path d="M13 21V9a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v12"/></svg>
-      Administración
+      VERTAG
     </div>
     <div class="nav-item active" id="nav-dashboard" onclick="switchView('dashboard')">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
@@ -115,6 +150,10 @@
     <div class="nav-item" id="nav-configuracion" onclick="switchView('configuracion')">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       Configuración
+    </div>
+    <div class="nav-item" id="nav-acerca" onclick="switchView('acerca')">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+      Acerca de
     </div>
     <div class="sidebar-bottom">
       <div class="nav-item" onclick="cerrarSesion()">
@@ -237,6 +276,45 @@
         <p class="error hidden" id="cf-error"></p>
       </div>
     </section>
+
+    <section id="view-acerca" class="hidden">
+      <div class="card">
+        <h2>Qué es VERTAG</h2>
+        <p style="font-size:14px;color:var(--text2);line-height:1.6;">
+          VERTAG es el sistema para administrar tu consorcio sin planillas de Excel. Cargás los gastos del mes,
+          el sistema reparte automáticamente cuánto le corresponde pagar a cada unidad, lleva la cuenta de quién
+          pagó y quién no, y te genera los comprobantes en PDF listos para entregar.
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>Cómo usarlo, paso a paso</h2>
+        <div class="step-row">
+          <span class="step-num">1</span>
+          <div><p style="margin:0;font-size:14px;">Cargar las unidades</p><p style="margin:4px 0 0;font-size:13px;color:var(--text2);">En <b>Unidades</b>, agregá cada departamento y asignale su coeficiente — ese número sale del reglamento de copropiedad del edificio.</p></div>
+        </div>
+        <div class="step-row">
+          <span class="step-num">2</span>
+          <div><p style="margin:0;font-size:14px;">Crear las categorías de gasto</p><p style="margin:4px 0 0;font-size:13px;color:var(--text2);">En <b>Configuración</b>, definí conceptos como "Sueldos", "Limpieza" o "Luz", y elegí cómo se reparte cada uno entre las unidades.</p></div>
+        </div>
+        <div class="step-row">
+          <span class="step-num">3</span>
+          <div><p style="margin:0;font-size:14px;">Cargar los gastos del mes</p><p style="margin:4px 0 0;font-size:13px;color:var(--text2);">En <b>Gastos</b>, elegí el período y la categoría, y cargá cada factura con su monto y fecha.</p></div>
+        </div>
+        <div class="step-row">
+          <span class="step-num">4</span>
+          <div><p style="margin:0;font-size:14px;">Cerrar el mes</p><p style="margin:4px 0 0;font-size:13px;color:var(--text2);">En <b>Períodos</b>, con un clic en "Generar liquidaciones" el sistema reparte automáticamente todos los gastos del mes entre las unidades.</p></div>
+        </div>
+        <div class="step-row">
+          <span class="step-num">5</span>
+          <div><p style="margin:0;font-size:14px;">Descargar las liquidaciones</p><p style="margin:4px 0 0;font-size:13px;color:var(--text2);">En <b>Liquidaciones</b>, descargá el PDF de cada unidad para entregarle al propietario.</p></div>
+        </div>
+        <div class="step-row">
+          <span class="step-num">6</span>
+          <div><p style="margin:0;font-size:14px;">Registrar los pagos</p><p style="margin:4px 0 0;font-size:13px;color:var(--text2);">En <b>Cobranza</b>, registrá cada pago a medida que entra — el saldo de cada unidad se actualiza solo, y podés descargar el recibo.</p></div>
+        </div>
+      </div>
+    </section>
   </main>
 </div>
 
@@ -250,7 +328,7 @@ let unidadesActuales = [];
 let periodosActuales = [];
 let categoriasActuales = [];
 let currentView = 'dashboard';
-const TITULOS = { dashboard:'Dashboard', unidades:'Unidades', gastos:'Gastos', periodos:'Períodos', liquidaciones:'Liquidaciones', cobranza:'Cobranza', configuracion:'Configuración' };
+const TITULOS = { dashboard:'Dashboard', unidades:'Unidades', gastos:'Gastos', periodos:'Períodos', liquidaciones:'Liquidaciones', cobranza:'Cobranza', configuracion:'Configuración', acerca:'Acerca de' };
 
 async function iniciarSesion() {
   const email = document.getElementById('login-email').value;
