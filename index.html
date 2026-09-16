@@ -10,6 +10,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.5.25/dist/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   :root{
     --bg:#F2F8FC; --card:#FFFFFF; --tile:#E7F2FB;
@@ -191,6 +192,19 @@
         </form>
         <p class="error hidden" id="uv-error"></p>
       </div>
+
+      <div class="card">
+        <div class="card-head"><h2>¿Muchas unidades para cargar?</h2></div>
+        <p class="muted-note" style="margin-top:0;">Descargá la plantilla, completá una fila por unidad con su coeficiente, y subila — se cargan todas de una sola vez.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px;">
+          <button onclick="descargarPlantillaUnidades()">Descargar plantilla</button>
+          <label class="primary" style="display:inline-flex;align-items:center;cursor:pointer;">
+            Importar desde Excel
+            <input type="file" id="uv-import-file" accept=".xlsx,.xls" style="display:none;" onchange="importarUnidadesDesdeArchivo(event)" />
+          </label>
+        </div>
+        <p class="error hidden" id="uv-import-error"></p>
+      </div>
     </section>
 
     <section id="view-gastos" class="hidden">
@@ -274,6 +288,12 @@
         </form>
         <p class="muted-note" style="margin-top:8px;">"Coeficiente especial" requiere elegir después qué unidades participan — todavía no tiene pantalla propia.</p>
         <p class="error hidden" id="cf-error"></p>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>Copia de seguridad</h2></div>
+        <p class="muted-note" style="margin-top:0;">Descarga un Excel con todos los datos de este consorcio (unidades, coeficientes, gastos, liquidaciones, pagos) — te sirve como respaldo propio, independiente de VERTAG.</p>
+        <button class="primary" style="margin-top:10px;" onclick="exportarTodo()">Exportar todo a Excel</button>
       </div>
     </section>
 
@@ -444,6 +464,77 @@ async function cargarUnidadesView() {
       : `<button onclick="asignarCoeficiente('${u.id}')">Asignar coeficiente</button>`;
     return `<div class="row"><span>${u.identificador}</span>${info}</div>`;
   }).join('') || '<p class="muted-note">Todavía no hay unidades.</p>';
+}
+
+function descargarPlantillaUnidades() {
+  const filas = [
+    ['Identificador', 'Coeficiente'],
+    ['1ro A', 0.05421],
+    ['1ro B', 0.04210],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(filas);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Unidades');
+  XLSX.writeFile(wb, 'plantilla_unidades_vertag.xlsx');
+}
+
+async function importarUnidadesDesdeArchivo(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const errorEl = document.getElementById('uv-import-error');
+  errorEl.classList.add('hidden');
+
+  try {
+    const buffer = await file.arrayBuffer();
+    const wb = XLSX.read(buffer);
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const filas = XLSX.utils.sheet_to_json(ws);
+
+    if (filas.length === 0) {
+      errorEl.textContent = 'El archivo no tiene filas para importar.';
+      errorEl.classList.remove('hidden');
+      return;
+    }
+
+    let exitos = 0;
+    const fallos = [];
+
+    for (const fila of filas) {
+      const identificador = String(fila['Identificador'] ?? '').trim();
+      const coeficiente = parseFloat(fila['Coeficiente']);
+      if (!identificador) { fallos.push('Una fila no tenia Identificador y se salteo.'); continue; }
+
+      const { data: nuevaUnidad, error: e1 } = await client
+        .from('unidades_funcionales')
+        .insert({ consorcio_id: consorcioActual, identificador })
+        .select('id')
+        .single();
+      if (e1) { fallos.push(`${identificador}: ${e1.message}`); continue; }
+
+      if (!isNaN(coeficiente) && coeficiente > 0) {
+        const { error: e2 } = await client.from('coeficientes_historial').insert({
+          unidad_funcional_id: nuevaUnidad.id,
+          coeficiente,
+          vigente_desde: new Date().toISOString().slice(0, 10),
+        });
+        if (e2) fallos.push(`${identificador}: coeficiente no se pudo cargar (${e2.message})`);
+      }
+      exitos++;
+    }
+
+    event.target.value = '';
+    await cambiarConsorcio();
+
+    if (fallos.length > 0) {
+      alert(`Se importaron ${exitos} unidades. Hubo ${fallos.length} problema(s):\n` + fallos.join('\n'));
+    } else {
+      alert(`Se importaron ${exitos} unidades correctamente.`);
+    }
+  } catch (err) {
+    console.error(err);
+    errorEl.textContent = 'No se pudo leer el archivo: ' + (err?.message || err);
+    errorEl.classList.remove('hidden');
+  }
 }
 
 async function crearUnidad(event) {
@@ -813,6 +904,71 @@ async function crearCategoria(event) {
 
   document.getElementById('cf-nombre').value = '';
   await cambiarConsorcio();
+}
+
+async function exportarTodo() {
+  try {
+    const ids = unidadesActuales.map(u => u.id);
+    const idToNombre = Object.fromEntries(unidadesActuales.map(u => [u.id, u.identificador]));
+
+    const [rc, rt, rp, rg, rl, rpa] = await Promise.all([
+      ids.length ? client.from('coeficientes_historial').select('unidad_funcional_id, coeficiente, vigente_desde, vigente_hasta').in('unidad_funcional_id', ids) : Promise.resolve({ data: [] }),
+      ids.length ? client.from('titulares').select('unidad_funcional_id, nombre, tipo, email, telefono').in('unidad_funcional_id', ids) : Promise.resolve({ data: [] }),
+      client.from('periodos_liquidacion').select('mes, anio, estado').eq('consorcio_id', consorcioActual),
+      client.from('gastos').select('descripcion, monto, tipo, fecha_comprobante, categorias_gasto(nombre), periodos_liquidacion(mes, anio)').eq('consorcio_id', consorcioActual),
+      ids.length ? client.from('liquidaciones').select('monto_total, unidad_funcional_id, periodos_liquidacion(mes, anio)').in('unidad_funcional_id', ids) : Promise.resolve({ data: [] }),
+      ids.length ? client.from('pagos').select('unidad_funcional_id, monto, fecha_pago, metodo_pago').in('unidad_funcional_id', ids) : Promise.resolve({ data: [] }),
+    ]);
+
+    const wb = XLSX.utils.book_new();
+
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+      unidadesActuales.map(u => ({ Identificador: u.identificador }))
+    ), 'Unidades');
+
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+      (rc.data || []).map(c => ({ Unidad: idToNombre[c.unidad_funcional_id] || '', Coeficiente: c.coeficiente, Vigente_desde: c.vigente_desde, Vigente_hasta: c.vigente_hasta || 'Vigente' }))
+    ), 'Coeficientes');
+
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+      (rt.data || []).map(t => ({ Unidad: idToNombre[t.unidad_funcional_id] || '', Nombre: t.nombre, Tipo: t.tipo, Email: t.email, Telefono: t.telefono }))
+    ), 'Titulares');
+
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+      (rp.data || []).map(p => ({ Mes: p.mes, Anio: p.anio, Estado: p.estado }))
+    ), 'Periodos');
+
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+      (rg.data || []).map(g => ({
+        Periodo: g.periodos_liquidacion ? `${g.periodos_liquidacion.mes}/${g.periodos_liquidacion.anio}` : '',
+        Categoria: g.categorias_gasto?.nombre || '',
+        Descripcion: g.descripcion,
+        Monto: g.monto,
+        Tipo: g.tipo,
+        Fecha: g.fecha_comprobante,
+      }))
+    ), 'Gastos');
+
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+      (rl.data || []).map(l => ({
+        Unidad: idToNombre[l.unidad_funcional_id] || '',
+        Periodo: l.periodos_liquidacion ? `${l.periodos_liquidacion.mes}/${l.periodos_liquidacion.anio}` : '',
+        Monto: l.monto_total,
+      }))
+    ), 'Liquidaciones');
+
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+      (rpa.data || []).map(p => ({ Unidad: idToNombre[p.unidad_funcional_id] || '', Fecha: p.fecha_pago, Monto: p.monto, Metodo: p.metodo_pago }))
+    ), 'Pagos');
+
+    const nombreConsorcio = (document.getElementById('consorcio-select').selectedOptions[0]?.text || 'consorcio')
+      .replace(/[^a-zA-Z0-9]+/g, '_');
+    const fecha = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `backup_vertag_${nombreConsorcio}_${fecha}.xlsx`);
+  } catch (err) {
+    console.error(err);
+    alert('Error exportando: ' + (err?.message || err));
+  }
 }
 
 verificarSesionExistente();
