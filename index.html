@@ -564,9 +564,67 @@ async function cargarCobranzaView() {
   lista.innerHTML = data.map(p => `
     <div class="row">
       <div><p style="margin:0;font-size:14px;">${nombrePorId[p.unidad_funcional_id] || '—'}</p><p style="margin:0;font-size:12px;color:var(--text2);">${p.fecha_pago} · ${p.metodo_pago || ''}</p></div>
-      <span>$${Number(p.monto).toLocaleString('es-AR')}</span>
+      <span>$${Number(p.monto).toLocaleString('es-AR')} <button onclick="descargarReciboPago('${p.id}')">Recibo</button></span>
     </div>
   `).join('') || '<p class="muted-note">Sin pagos registrados.</p>';
+}
+
+async function descargarReciboPago(pagoId) {
+  const { data: pago, error: e1 } = await client
+    .from('pagos')
+    .select('id, monto, fecha_pago, metodo_pago, unidad_funcional_id')
+    .eq('id', pagoId)
+    .single();
+  if (e1) { alert('Error cargando el pago: ' + e1.message); return; }
+
+  const [{ data: unidad }, { data: consorcio }] = await Promise.all([
+    client.from('unidades_funcionales').select('identificador').eq('id', pago.unidad_funcional_id).single().then(r => r),
+    client.from('consorcios').select('nombre, direccion').eq('id', consorcioActual).single().then(r => r),
+  ]);
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+
+  doc.setFontSize(14);
+  doc.text(consorcio.nombre, 14, 18);
+  if (consorcio.direccion) {
+    doc.setFontSize(10);
+    doc.setTextColor(120);
+    doc.text(consorcio.direccion, 14, 24);
+  }
+
+  doc.setFontSize(12);
+  doc.setTextColor(0);
+  doc.text('Recibo de pago', 14, 36);
+
+  const metodoLegible = {
+    transferencia: 'Transferencia',
+    efectivo: 'Efectivo',
+    debito_automatico: 'Debito automatico',
+  }[pago.metodo_pago] || pago.metodo_pago || '';
+
+  const lineas = [
+    ['Unidad', unidad.identificador],
+    ['Fecha de pago', pago.fecha_pago],
+    ['Metodo', metodoLegible],
+    ['Monto', '$' + Number(pago.monto).toLocaleString('es-AR')],
+  ];
+
+  doc.setFontSize(10);
+  let y = 48;
+  lineas.forEach(([label, valor]) => {
+    doc.setTextColor(107, 106, 99);
+    doc.text(label, 14, y);
+    doc.setTextColor(0);
+    doc.text(String(valor), 60, y);
+    y += 8;
+  });
+
+  doc.setFontSize(9);
+  doc.setTextColor(150);
+  doc.text(`Comprobante N. ${pago.id.slice(0, 8).toUpperCase()}`, 14, y + 8);
+
+  doc.save(`recibo_${unidad.identificador}_${pago.fecha_pago}.pdf`);
 }
 
 async function registrarPago(event) {
@@ -589,8 +647,38 @@ async function registrarPago(event) {
 
 async function cargarConfiguracionView() {
   document.getElementById('cf-lista').innerHTML = categoriasActuales.map(c => `
-    <div class="row"><span>${c.nombre}</span><span class="badge ok">${c.tipo_prorrateo.replace('_', ' ')}</span></div>
+    <div class="row" id="cat-row-${c.id}">
+      <span>${c.nombre}</span>
+      <span><span class="badge ok">${c.tipo_prorrateo.replace('_', ' ')}</span> <button onclick="editarCategoria('${c.id}')">Editar</button></span>
+    </div>
   `).join('') || '<p class="muted-note">Sin categorías todavía.</p>';
+}
+
+function editarCategoria(id) {
+  const cat = categoriasActuales.find(c => c.id === id);
+  if (!cat) return;
+  const row = document.getElementById('cat-row-' + id);
+  row.outerHTML = `
+    <div class="row" id="cat-row-${id}">
+      <input type="text" id="edit-nombre-${id}" value="${cat.nombre}" style="flex:1;" />
+      <select id="edit-tipo-${id}">
+        <option value="coeficiente_general" ${cat.tipo_prorrateo === 'coeficiente_general' ? 'selected' : ''}>Coeficiente general</option>
+        <option value="partes_iguales" ${cat.tipo_prorrateo === 'partes_iguales' ? 'selected' : ''}>Partes iguales</option>
+        <option value="coeficiente_especial" ${cat.tipo_prorrateo === 'coeficiente_especial' ? 'selected' : ''}>Coeficiente especial</option>
+      </select>
+      <button class="primary" onclick="guardarCategoria('${id}')">Guardar</button>
+      <button onclick="cargarConfiguracionView()">Cancelar</button>
+    </div>
+  `;
+}
+
+async function guardarCategoria(id) {
+  const nombre = document.getElementById('edit-nombre-' + id).value;
+  const tipo_prorrateo = document.getElementById('edit-tipo-' + id).value;
+
+  const { error } = await client.from('categorias_gasto').update({ nombre, tipo_prorrateo }).eq('id', id);
+  if (error) { alert('Error actualizando categoría: ' + error.message); return; }
+  await cambiarConsorcio();
 }
 
 async function crearCategoria(event) {
