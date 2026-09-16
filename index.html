@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Panel de administración de consorcios</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+  :root{
+    --bg:#F6F5F1; --card:#FFFFFF; --tile:#F1EFE8;
+    --text:#232220; --text2:#6B6A63; --muted:#9B9A92;
+    --border:#E5E3DB;
+    --accent:#0F5C4E; --accent-bg:#E4F0ED;
+    --danger:#A32D2D; --danger-bg:#FCEBEB;
+    --success:#3B6D11; --success-bg:#EAF3DE;
+    --warning:#8A5A12; --warning-bg:#FAEEDA;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);}
+  input,select,button{font-family:inherit;font-size:14px;padding:0.55rem 0.75rem;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text);}
+  button{cursor:pointer;font-weight:500;}
+  button.primary{background:var(--accent);color:#fff;border-color:var(--accent);}
+  button:hover{opacity:0.9;}
+  button:disabled{opacity:0.4;cursor:not-allowed;}
+  h1{font-size:19px;font-weight:600;margin:0;}
+  h2{font-size:15px;font-weight:600;margin:0 0 12px;}
+  .hidden{display:none;}
+  .error{color:var(--danger);font-size:13px;margin-top:8px;}
+  .muted-note{color:var(--muted);font-size:13px;}
+
+  .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;}
+  .login-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:2rem;width:100%;max-width:340px;}
+  .login-card input{width:100%;margin:6px 0 14px;}
+
+  .shell{display:flex;min-height:100vh;}
+  .sidebar{width:220px;flex-shrink:0;background:var(--card);border-right:1px solid var(--border);padding:1.5rem 1rem;display:flex;flex-direction:column;}
+  .brand{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px;margin-bottom:2rem;padding:0 0.5rem;}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:0.6rem 0.75rem;border-radius:8px;color:var(--text2);font-size:14px;cursor:pointer;margin-bottom:2px;}
+  .nav-item:hover{background:var(--tile);}
+  .nav-item.active{background:var(--accent-bg);color:var(--accent);font-weight:500;}
+  .nav-item svg{flex-shrink:0;}
+  .sidebar-bottom{margin-top:auto;}
+  .main{flex:1;padding:2rem 2.5rem;max-width:1000px;}
+  .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.75rem;flex-wrap:wrap;gap:10px;}
+
+  .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:1.5rem;}
+  .kpi{background:var(--tile);border-radius:10px;padding:1rem;}
+  .kpi p{margin:0;}
+  .kpi .label{font-size:13px;color:var(--text2);margin-bottom:4px;}
+  .kpi .value{font-size:22px;font-weight:600;}
+
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:0.25rem 1.25rem 1.25rem;margin-bottom:1.25rem;}
+  .card-head{display:flex;justify-content:space-between;align-items:center;padding-top:1.1rem;margin-bottom:6px;flex-wrap:wrap;gap:8px;}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);}
+  .row:last-child{border-bottom:none;}
+
+  .badge{font-size:12px;padding:3px 10px;border-radius:100px;font-weight:500;white-space:nowrap;}
+  .badge.ok{background:var(--success-bg);color:var(--success);}
+  .badge.debe{background:var(--danger-bg);color:var(--danger);}
+  .badge.pend{background:var(--warning-bg);color:var(--warning);}
+
+  form.inline{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-top:0.75rem;}
+  form.inline label{display:flex;flex-direction:column;font-size:12px;color:var(--text2);gap:4px;}
+</style>
+</head>
+<body>
+
+<div id="login-screen" class="login-wrap">
+  <div class="login-card">
+    <h1 style="margin-bottom:1.25rem;">Iniciar sesión</h1>
+    <label style="font-size:13px;color:var(--text2);">Email</label>
+    <input type="email" id="login-email" />
+    <label style="font-size:13px;color:var(--text2);">Contraseña</label>
+    <input type="password" id="login-password" />
+    <button class="primary" style="width:100%;" onclick="iniciarSesion()">Ingresar</button>
+    <p class="error hidden" id="login-error"></p>
+  </div>
+</div>
+
+<div id="app-screen" class="shell hidden">
+  <aside class="sidebar">
+    <div class="brand">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V5a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v16"/><path d="M13 21V9a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v12"/></svg>
+      Administración
+    </div>
+    <div class="nav-item active" id="nav-dashboard" onclick="switchView('dashboard')">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+      Dashboard
+    </div>
+    <div class="nav-item" id="nav-unidades" onclick="switchView('unidades')">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V5a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v16"/><path d="M13 21V9a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v12"/></svg>
+      Unidades
+    </div>
+    <div class="nav-item" id="nav-gastos" onclick="switchView('gastos')">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+      Gastos
+    </div>
+    <div class="nav-item" id="nav-periodos" onclick="switchView('periodos')">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="16" y1="2" x2="16" y2="6"/></svg>
+      Períodos
+    </div>
+    <div class="nav-item" id="nav-cobranza" onclick="switchView('cobranza')">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg>
+      Cobranza
+    </div>
+    <div class="nav-item" id="nav-configuracion" onclick="switchView('configuracion')">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Configuración
+    </div>
+    <div class="sidebar-bottom">
+      <div class="nav-item" onclick="cerrarSesion()">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Cerrar sesión
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <h1 id="page-title">Dashboard</h1>
+      <select id="consorcio-select" onchange="cambiarConsorcio()"></select>
+    </div>
+
+    <section id="view-dashboard">
+      <div class="kpi-grid">
+        <div class="kpi"><p class="label">Unidades</p><p class="value" id="kpi-unidades">-</p></div>
+        <div class="kpi"><p class="label">Con deuda</p><p class="value" id="kpi-deuda">-</p></div>
+        <div class="kpi"><p class="label">Total pendiente</p><p class="value" id="kpi-pendiente">-</p></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Cuentas por unidad</h2></div>
+        <div id="dash-lista-unidades"></div>
+      </div>
+    </section>
+
+    <section id="view-unidades" class="hidden">
+      <div class="card">
+        <div class="card-head"><h2>Unidades funcionales</h2></div>
+        <div id="uv-lista"></div>
+        <form class="inline" onsubmit="crearUnidad(event)">
+          <label>Identificador<input type="text" id="uv-identificador" placeholder="3ro A" required /></label>
+          <button class="primary" type="submit">+ Nueva unidad</button>
+        </form>
+        <p class="error hidden" id="uv-error"></p>
+      </div>
+    </section>
+
+    <section id="view-gastos" class="hidden">
+      <div class="card">
+        <div class="card-head">
+          <h2>Gastos del período</h2>
+          <select id="gv-periodo" onchange="cargarGastosLista()"></select>
+        </div>
+        <div id="gv-lista"></div>
+        <form class="inline" onsubmit="cargarGasto(event)">
+          <label>Categoría<select id="gv-categoria"></select></label>
+          <label>Descripción<input type="text" id="gv-descripcion" required /></label>
+          <label>Monto<input type="number" id="gv-monto" step="0.01" required /></label>
+          <label>Tipo
+            <select id="gv-tipo"><option value="ordinario">Ordinario</option><option value="extraordinario">Extraordinario</option></select>
+          </label>
+          <label>Fecha<input type="date" id="gv-fecha" required /></label>
+          <button class="primary" type="submit">Cargar gasto</button>
+        </form>
+        <p class="error hidden" id="gv-error"></p>
+      </div>
+    </section>
+
+    <section id="view-periodos" class="hidden">
+      <div class="card">
+        <div class="card-head"><h2>Períodos</h2></div>
+        <div id="pv-lista"></div>
+        <form class="inline" onsubmit="crearPeriodo(event)">
+          <label>Mes<input type="number" id="pv-mes" min="1" max="12" required /></label>
+          <label>Año<input type="number" id="pv-anio" min="2020" required /></label>
+          <button class="primary" type="submit">+ Nuevo período</button>
+        </form>
+        <p class="error hidden" id="pv-error"></p>
+      </div>
+    </section>
+
+    <section id="view-cobranza" class="hidden">
+      <div class="card">
+        <div class="card-head"><h2>Registrar pago</h2></div>
+        <form class="inline" onsubmit="registrarPago(event)">
+          <label>Unidad<select id="cv-unidad"></select></label>
+          <label>Monto<input type="number" id="cv-monto" step="0.01" required /></label>
+          <label>Fecha<input type="date" id="cv-fecha" required /></label>
+          <label>Método
+            <select id="cv-metodo"><option value="transferencia">Transferencia</option><option value="efectivo">Efectivo</option><option value="debito_automatico">Débito automático</option></select>
+          </label>
+          <button class="primary" type="submit">Registrar</button>
+        </form>
+        <p class="error hidden" id="cv-error"></p>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Pagos recientes</h2></div>
+        <div id="cv-lista"></div>
+      </div>
+    </section>
+
+    <section id="view-configuracion" class="hidden">
+      <div class="card">
+        <div class="card-head"><h2>Categorías de gasto</h2></div>
+        <div id="cf-lista"></div>
+        <form class="inline" onsubmit="crearCategoria(event)">
+          <label>Nombre<input type="text" id="cf-nombre" required /></label>
+          <label>Criterio de prorrateo
+            <select id="cf-tipo">
+              <option value="coeficiente_general">Coeficiente general</option>
+              <option value="partes_iguales">Partes iguales</option>
+              <option value="coeficiente_especial">Coeficiente especial</option>
+            </select>
+          </label>
+          <button class="primary" type="submit">+ Nueva categoría</button>
+        </form>
+        <p class="muted-note" style="margin-top:8px;">"Coeficiente especial" requiere elegir después qué unidades participan — todavía no tiene pantalla propia.</p>
+        <p class="error hidden" id="cf-error"></p>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://sqafmrcoshkxbtledyij.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_r_b6XWYYo-v_03RjcvJA6w_0QKHIvD6';
+const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let consorcioActual = null;
+let unidadesActuales = [];
+let periodosActuales = [];
+let categoriasActuales = [];
+let currentView = 'dashboard';
+const TITULOS = { dashboard:'Dashboard', unidades:'Unidades', gastos:'Gastos', periodos:'Períodos', cobranza:'Cobranza', configuracion:'Configuración' };
+
+async function iniciarSesion() {
+  const email = document.getElementById('login-email').value;
+  const password = document.getElementById('login-password').value;
+  const errorEl = document.getElementById('login-error');
+  errorEl.classList.add('hidden');
+
+  const { error } = await client.auth.signInWithPassword({ email, password });
+  if (error) { errorEl.textContent = error.message; errorEl.classList.remove('hidden'); return; }
+  await mostrarApp();
+}
+
+async function cerrarSesion() {
+  await client.auth.signOut();
+  document.getElementById('app-screen').classList.add('hidden');
+  document.getElementById('login-screen').classList.remove('hidden');
+}
+
+async function verificarSesionExistente() {
+  const { data } = await client.auth.getSession();
+  if (data.session) await mostrarApp();
+}
+
+function switchView(view) {
+  currentView = view;
+  Object.keys(TITULOS).forEach(v => {
+    document.getElementById('view-' + v).classList.toggle('hidden', v !== view);
+    document.getElementById('nav-' + v).classList.toggle('active', v === view);
+  });
+  document.getElementById('page-title').textContent = TITULOS[view];
+
+  if (view === 'dashboard') cargarDashboard();
+  if (view === 'unidades') cargarUnidadesView();
+  if (view === 'gastos') cargarGastosView();
+  if (view === 'periodos') cargarPeriodosView();
+  if (view === 'cobranza') cargarCobranzaView();
+  if (view === 'configuracion') cargarConfiguracionView();
+}
+
+async function mostrarApp() {
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('app-screen').classList.remove('hidden');
+
+  const { data, error } = await client.from('consorcios').select('id, nombre').order('nombre');
+  if (error) { alert('Error cargando consorcios: ' + error.message); return; }
+
+  const select = document.getElementById('consorcio-select');
+  select.innerHTML = data.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('')
+    || '<option value="">Sin consorcios visibles</option>';
+
+  if (data.length > 0) {
+    consorcioActual = data[0].id;
+    await cambiarConsorcio();
+  }
+}
+
+async function cambiarConsorcio() {
+  consorcioActual = document.getElementById('consorcio-select').value;
+  if (!consorcioActual) return;
+
+  const [{ data: unidades }, { data: periodos }, { data: categorias }] = await Promise.all([
+    client.from('unidades_funcionales').select('id, identificador').eq('consorcio_id', consorcioActual).eq('activa', true).order('identificador'),
+    client.from('periodos_liquidacion').select('id, mes, anio, estado').eq('consorcio_id', consorcioActual).order('anio', { ascending: false }).order('mes', { ascending: false }),
+    client.from('categorias_gasto').select('id, nombre, tipo_prorrateo').eq('consorcio_id', consorcioActual).order('nombre'),
+  ]);
+
+  unidadesActuales = unidades || [];
+  periodosActuales = periodos || [];
+  categoriasActuales = categorias || [];
+  switchView(currentView);
+}
+
+async function cargarDashboard() {
+  const ids = unidadesActuales.map(u => u.id);
+  let saldos = [];
+  if (ids.length > 0) {
+    const { data, error } = await client.from('v_saldo_cuenta_corriente').select('unidad_funcional_id, saldo').in('unidad_funcional_id', ids);
+    if (error) { alert('Error cargando saldos: ' + error.message); return; }
+    saldos = data;
+  }
+  const saldoPorUnidad = Object.fromEntries(saldos.map(s => [s.unidad_funcional_id, s.saldo]));
+
+  let pendiente = 0, conDeuda = 0;
+  const lista = document.getElementById('dash-lista-unidades');
+  lista.innerHTML = unidadesActuales.map(u => {
+    const saldo = saldoPorUnidad[u.id] || 0;
+    const debe = saldo > 0;
+    if (debe) { pendiente += saldo; conDeuda++; }
+    const badge = debe ? `<span class="badge debe">Debe $${saldo.toLocaleString('es-AR')}</span>` : `<span class="badge ok">Al día</span>`;
+    return `<div class="row"><span>${u.identificador}</span>${badge}</div>`;
+  }).join('') || '<p class="muted-note">No hay unidades cargadas.</p>';
+
+  document.getElementById('kpi-unidades').textContent = unidadesActuales.length;
+  document.getElementById('kpi-deuda').textContent = conDeuda;
+  document.getElementById('kpi-pendiente').textContent = '$' + pendiente.toLocaleString('es-AR');
+}
+
+async function cargarUnidadesView() {
+  const ids = unidadesActuales.map(u => u.id);
+  let coeficientes = [];
+  if (ids.length > 0) {
+    const { data, error } = await client.from('v_coeficiente_vigente').select('unidad_funcional_id, coeficiente').in('unidad_funcional_id', ids);
+    if (error) { alert('Error cargando coeficientes: ' + error.message); return; }
+    coeficientes = data;
+  }
+  const coefPorUnidad = Object.fromEntries(coeficientes.map(c => [c.unidad_funcional_id, c.coeficiente]));
+
+  document.getElementById('uv-lista').innerHTML = unidadesActuales.map(u => {
+    const coef = coefPorUnidad[u.id];
+    const info = coef
+      ? `<span class="badge ok">Coef. ${coef}</span>`
+      : `<button onclick="asignarCoeficiente('${u.id}')">Asignar coeficiente</button>`;
+    return `<div class="row"><span>${u.identificador}</span>${info}</div>`;
+  }).join('') || '<p class="muted-note">Todavía no hay unidades.</p>';
+}
+
+async function crearUnidad(event) {
+  event.preventDefault();
+  const errorEl = document.getElementById('uv-error');
+  errorEl.classList.add('hidden');
+  const identificador = document.getElementById('uv-identificador').value;
+
+  const { error } = await client.from('unidades_funcionales').insert({ consorcio_id: consorcioActual, identificador });
+  if (error) { errorEl.textContent = error.message; errorEl.classList.remove('hidden'); return; }
+
+  document.getElementById('uv-identificador').value = '';
+  await cambiarConsorcio();
+}
+
+async function asignarCoeficiente(unidadId) {
+  const valor = parseFloat(prompt('Coeficiente (ej: 0.05421):'));
+  if (!valor || valor <= 0) return;
+
+  const { error } = await client.from('coeficientes_historial').insert({
+    unidad_funcional_id: unidadId,
+    coeficiente: valor,
+    vigente_desde: new Date().toISOString().slice(0, 10),
+  });
+  if (error) { alert('Error asignando coeficiente: ' + error.message); return; }
+  await cargarUnidadesView();
+}
+
+async function cargarGastosView() {
+  document.getElementById('gv-periodo').innerHTML = periodosActuales.map(p =>
+    `<option value="${p.id}">${p.mes}/${p.anio} — ${p.estado}</option>`
+  ).join('') || '<option value="">Sin períodos</option>';
+
+  document.getElementById('gv-categoria').innerHTML = categoriasActuales.map(c =>
+    `<option value="${c.id}">${c.nombre}</option>`
+  ).join('') || '<option value="">Sin categorías</option>';
+
+  await cargarGastosLista();
+}
+
+async function cargarGastosLista() {
+  const periodoId = document.getElementById('gv-periodo').value;
+  const lista = document.getElementById('gv-lista');
+  if (!periodoId) { lista.innerHTML = ''; return; }
+
+  const { data, error } = await client.from('gastos')
+    .select('id, descripcion, monto, tipo, categorias_gasto(nombre)')
+    .eq('periodo_id', periodoId)
+    .order('fecha_comprobante', { ascending: false });
+  if (error) { alert('Error cargando gastos: ' + error.message); return; }
+
+  lista.innerHTML = data.map(g => `
+    <div class="row">
+      <div><p style="margin:0;font-size:14px;">${g.descripcion}</p><p style="margin:0;font-size:12px;color:var(--text2);">${g.categorias_gasto?.nombre || ''} · ${g.tipo}</p></div>
+      <span>$${Number(g.monto).toLocaleString('es-AR')}</span>
+    </div>
+  `).join('') || '<p class="muted-note">Sin gastos en este período.</p>';
+}
+
+async function cargarGasto(event) {
+  event.preventDefault();
+  const errorEl = document.getElementById('gv-error');
+  errorEl.classList.add('hidden');
+  const periodoId = document.getElementById('gv-periodo').value;
+  if (!periodoId) { errorEl.textContent = 'Primero creá un período.'; errorEl.classList.remove('hidden'); return; }
+
+  const payload = {
+    consorcio_id: consorcioActual,
+    periodo_id: periodoId,
+    categoria_id: document.getElementById('gv-categoria').value,
+    descripcion: document.getElementById('gv-descripcion').value,
+    monto: parseFloat(document.getElementById('gv-monto').value),
+    tipo: document.getElementById('gv-tipo').value,
+    fecha_comprobante: document.getElementById('gv-fecha').value,
+  };
+  const { error } = await client.from('gastos').insert(payload);
+  if (error) { errorEl.textContent = error.message; errorEl.classList.remove('hidden'); return; }
+
+  document.getElementById('gv-descripcion').value = '';
+  document.getElementById('gv-monto').value = '';
+  await cargarGastosLista();
+}
+
+async function cargarPeriodosView() {
+  document.getElementById('pv-lista').innerHTML = periodosActuales.map(p => `
+    <div class="row">
+      <span>${p.mes}/${p.anio}</span>
+      ${p.estado === 'abierto'
+        ? `<span><span class="badge pend">Abierto</span> <button class="primary" onclick="generarLiquidaciones('${p.id}')">Generar liquidaciones</button></span>`
+        : `<span class="badge ok">Cerrado</span>`}
+    </div>
+  `).join('') || '<p class="muted-note">Sin períodos todavía.</p>';
+}
+
+async function crearPeriodo(event) {
+  event.preventDefault();
+  const errorEl = document.getElementById('pv-error');
+  errorEl.classList.add('hidden');
+  const mes = parseInt(document.getElementById('pv-mes').value, 10);
+  const anio = parseInt(document.getElementById('pv-anio').value, 10);
+
+  const { error } = await client.from('periodos_liquidacion').insert({ consorcio_id: consorcioActual, mes, anio });
+  if (error) { errorEl.textContent = error.message; errorEl.classList.remove('hidden'); return; }
+
+  await cambiarConsorcio();
+}
+
+async function generarLiquidaciones(periodoId) {
+  if (!confirm('¿Generar liquidaciones para este período? Esto lo cierra.')) return;
+  const { error } = await client.rpc('fn_generar_liquidaciones_periodo', { p_periodo_id: periodoId });
+  if (error) { alert('Error generando liquidaciones: ' + error.message); return; }
+  alert('Liquidaciones generadas correctamente.');
+  await cambiarConsorcio();
+}
+
+async function cargarCobranzaView() {
+  document.getElementById('cv-unidad').innerHTML = unidadesActuales.map(u =>
+    `<option value="${u.id}">${u.identificador}</option>`
+  ).join('') || '<option value="">Sin unidades</option>';
+
+  const ids = unidadesActuales.map(u => u.id);
+  const nombrePorId = Object.fromEntries(unidadesActuales.map(u => [u.id, u.identificador]));
+  const lista = document.getElementById('cv-lista');
+  if (ids.length === 0) { lista.innerHTML = '<p class="muted-note">Sin unidades.</p>'; return; }
+
+  const { data, error } = await client.from('pagos')
+    .select('id, monto, fecha_pago, metodo_pago, unidad_funcional_id')
+    .in('unidad_funcional_id', ids)
+    .order('fecha_pago', { ascending: false })
+    .limit(20);
+  if (error) { alert('Error cargando pagos: ' + error.message); return; }
+
+  lista.innerHTML = data.map(p => `
+    <div class="row">
+      <div><p style="margin:0;font-size:14px;">${nombrePorId[p.unidad_funcional_id] || '—'}</p><p style="margin:0;font-size:12px;color:var(--text2);">${p.fecha_pago} · ${p.metodo_pago || ''}</p></div>
+      <span>$${Number(p.monto).toLocaleString('es-AR')}</span>
+    </div>
+  `).join('') || '<p class="muted-note">Sin pagos registrados.</p>';
+}
+
+async function registrarPago(event) {
+  event.preventDefault();
+  const errorEl = document.getElementById('cv-error');
+  errorEl.classList.add('hidden');
+
+  const payload = {
+    unidad_funcional_id: document.getElementById('cv-unidad').value,
+    monto: parseFloat(document.getElementById('cv-monto').value),
+    fecha_pago: document.getElementById('cv-fecha').value,
+    metodo_pago: document.getElementById('cv-metodo').value,
+  };
+  const { error } = await client.from('pagos').insert(payload);
+  if (error) { errorEl.textContent = error.message; errorEl.classList.remove('hidden'); return; }
+
+  document.getElementById('cv-monto').value = '';
+  await cargarCobranzaView();
+}
+
+async function cargarConfiguracionView() {
+  document.getElementById('cf-lista').innerHTML = categoriasActuales.map(c => `
+    <div class="row"><span>${c.nombre}</span><span class="badge ok">${c.tipo_prorrateo.replace('_', ' ')}</span></div>
+  `).join('') || '<p class="muted-note">Sin categorías todavía.</p>';
+}
+
+async function crearCategoria(event) {
+  event.preventDefault();
+  const errorEl = document.getElementById('cf-error');
+  errorEl.classList.add('hidden');
+
+  const payload = {
+    consorcio_id: consorcioActual,
+    nombre: document.getElementById('cf-nombre').value,
+    tipo_prorrateo: document.getElementById('cf-tipo').value,
+  };
+  const { error } = await client.from('categorias_gasto').insert(payload);
+  if (error) { errorEl.textContent = error.message; errorEl.classList.remove('hidden'); return; }
+
+  document.getElementById('cf-nombre').value = '';
+  await cambiarConsorcio();
+}
+
+verificarSesionExistente();
+</script>
+</body>
+</html>
