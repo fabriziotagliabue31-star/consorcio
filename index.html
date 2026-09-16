@@ -8,6 +8,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf-autotable.min.js"></script>
 <style>
   :root{
     --bg:#F6F5F1; --card:#FFFFFF; --tile:#F1EFE8;
@@ -27,7 +29,7 @@
   button:disabled{opacity:0.4;cursor:not-allowed;}
   h1{font-size:19px;font-weight:600;margin:0;}
   h2{font-size:15px;font-weight:600;margin:0 0 12px;}
-  .hidden{display:none;}
+  .hidden{display:none !important;}
   .error{color:var(--danger);font-size:13px;margin-top:8px;}
   .muted-note{color:var(--muted);font-size:13px;}
 
@@ -434,13 +436,91 @@ async function cargarGasto(event) {
 
 async function cargarPeriodosView() {
   document.getElementById('pv-lista').innerHTML = periodosActuales.map(p => `
-    <div class="row">
-      <span>${p.mes}/${p.anio}</span>
-      ${p.estado === 'abierto'
-        ? `<span><span class="badge pend">Abierto</span> <button class="primary" onclick="generarLiquidaciones('${p.id}')">Generar liquidaciones</button></span>`
-        : `<span class="badge ok">Cerrado</span>`}
+    <div>
+      <div class="row">
+        <span>${p.mes}/${p.anio}</span>
+        ${p.estado === 'abierto'
+          ? `<span><span class="badge pend">Abierto</span> <button class="primary" onclick="generarLiquidaciones('${p.id}')">Generar liquidaciones</button></span>`
+          : `<span><span class="badge ok">Cerrado</span> <button onclick="toggleLiquidaciones('${p.id}')">Ver liquidaciones</button></span>`}
+      </div>
+      <div id="liq-${p.id}" class="hidden" style="padding:2px 0 12px 12px;"></div>
     </div>
   `).join('') || '<p class="muted-note">Sin períodos todavía.</p>';
+}
+
+async function toggleLiquidaciones(periodoId) {
+  const div = document.getElementById('liq-' + periodoId);
+  if (!div.classList.contains('hidden')) { div.classList.add('hidden'); return; }
+  div.classList.remove('hidden');
+  div.innerHTML = '<p class="muted-note">Cargando...</p>';
+
+  const { data, error } = await client
+    .from('liquidaciones')
+    .select('id, monto_total, unidades_funcionales(identificador)')
+    .eq('periodo_id', periodoId);
+  if (error) { div.innerHTML = '<p class="error">' + error.message + '</p>'; return; }
+
+  const ordenado = [...data].sort((a, b) =>
+    (a.unidades_funcionales?.identificador || '').localeCompare(b.unidades_funcionales?.identificador || ''));
+
+  div.innerHTML = ordenado.map(l => `
+    <div class="row">
+      <span>${l.unidades_funcionales?.identificador || '—'}</span>
+      <span>$${Number(l.monto_total).toLocaleString('es-AR')} <button onclick="descargarPdfLiquidacion('${l.id}')">PDF</button></span>
+    </div>
+  `).join('') || '<p class="muted-note">Sin liquidaciones en este período.</p>';
+}
+
+async function descargarPdfLiquidacion(liquidacionId) {
+  const { data: liq, error: e1 } = await client
+    .from('liquidaciones')
+    .select('id, monto_total, unidad_funcional_id, periodo_id')
+    .eq('id', liquidacionId)
+    .single();
+  if (e1) { alert('Error cargando liquidación: ' + e1.message); return; }
+
+  const [{ data: unidad }, { data: periodo }, { data: consorcio }, { data: detalle, error: e2 }] = await Promise.all([
+    client.from('unidades_funcionales').select('identificador').eq('id', liq.unidad_funcional_id).single().then(r => r),
+    client.from('periodos_liquidacion').select('mes, anio').eq('id', liq.periodo_id).single().then(r => r),
+    client.from('consorcios').select('nombre, direccion').eq('id', consorcioActual).single().then(r => r),
+    client.from('detalle_liquidacion')
+      .select('monto_prorrateado, categorias_gasto(nombre), gastos(descripcion)')
+      .eq('liquidacion_id', liquidacionId),
+  ]);
+  if (e2) { alert('Error cargando el detalle: ' + e2.message); return; }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+
+  doc.setFontSize(14);
+  doc.text(consorcio.nombre, 14, 18);
+  if (consorcio.direccion) {
+    doc.setFontSize(10);
+    doc.setTextColor(120);
+    doc.text(consorcio.direccion, 14, 24);
+  }
+
+  doc.setFontSize(12);
+  doc.setTextColor(0);
+  doc.text(`Liquidacion de expensas - ${periodo.mes}/${periodo.anio}`, 14, 34);
+  doc.setFontSize(10);
+  doc.text(`Unidad: ${unidad.identificador}`, 14, 41);
+
+  doc.autoTable({
+    startY: 48,
+    head: [['Categoria', 'Descripcion', 'Monto']],
+    body: detalle.map(d => [
+      d.categorias_gasto?.nombre || '',
+      d.gastos?.descripcion || '',
+      '$' + Number(d.monto_prorrateado).toLocaleString('es-AR'),
+    ]),
+    foot: [['', 'Total', '$' + Number(liq.monto_total).toLocaleString('es-AR')]],
+    styles: { fontSize: 9 },
+    headStyles: { fillColor: [15, 92, 78] },
+    footStyles: { fillColor: [241, 239, 232], textColor: [35, 34, 32] },
+  });
+
+  doc.save(`liquidacion_${unidad.identificador}_${periodo.mes}-${periodo.anio}.pdf`);
 }
 
 async function crearPeriodo(event) {
