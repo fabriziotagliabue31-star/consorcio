@@ -492,55 +492,74 @@ async function cargarLiquidacionesLista() {
 }
 
 async function descargarPdfLiquidacion(liquidacionId) {
-  const { data: liq, error: e1 } = await client
-    .from('liquidaciones')
-    .select('id, monto_total, unidad_funcional_id, periodo_id')
-    .eq('id', liquidacionId)
-    .single();
-  if (e1) { alert('Error cargando liquidación: ' + e1.message); return; }
+  try {
+    const { data: liq, error: e1 } = await client
+      .from('liquidaciones')
+      .select('id, monto_total, unidad_funcional_id, periodo_id')
+      .eq('id', liquidacionId)
+      .single();
+    if (e1) throw e1;
 
-  const [{ data: unidad }, { data: periodo }, { data: consorcio }, { data: detalle, error: e2 }] = await Promise.all([
-    client.from('unidades_funcionales').select('identificador').eq('id', liq.unidad_funcional_id).single().then(r => r),
-    client.from('periodos_liquidacion').select('mes, anio').eq('id', liq.periodo_id).single().then(r => r),
-    client.from('consorcios').select('nombre, direccion').eq('id', consorcioActual).single().then(r => r),
-    client.from('detalle_liquidacion')
-      .select('monto_prorrateado, categorias_gasto(nombre), gastos(descripcion)')
-      .eq('liquidacion_id', liquidacionId),
-  ]);
-  if (e2) { alert('Error cargando el detalle: ' + e2.message); return; }
+    const [ru, rp, rc, rd] = await Promise.all([
+      client.from('unidades_funcionales').select('identificador').eq('id', liq.unidad_funcional_id).single(),
+      client.from('periodos_liquidacion').select('mes, anio').eq('id', liq.periodo_id).single(),
+      client.from('consorcios').select('nombre, direccion').eq('id', consorcioActual).single(),
+      client.from('detalle_liquidacion')
+        .select('monto_prorrateado, categorias_gasto(nombre), gastos(descripcion)')
+        .eq('liquidacion_id', liquidacionId),
+    ]);
+    if (ru.error) throw ru.error;
+    if (rp.error) throw rp.error;
+    if (rc.error) throw rc.error;
+    if (rd.error) throw rd.error;
 
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
+    const unidad = ru.data, periodo = rp.data, consorcio = rc.data, detalle = rd.data;
 
-  doc.setFontSize(14);
-  doc.text(consorcio.nombre, 14, 18);
-  if (consorcio.direccion) {
+    if (!window.jspdf || !window.jspdf.jsPDF) {
+      alert('No se pudo cargar la libreria de PDF (jsPDF). Revisa tu conexion a internet y recarga la pagina.');
+      return;
+    }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+
+    doc.setFontSize(14);
+    doc.text(consorcio.nombre, 14, 18);
+    if (consorcio.direccion) {
+      doc.setFontSize(10);
+      doc.setTextColor(120);
+      doc.text(consorcio.direccion, 14, 24);
+    }
+
+    doc.setFontSize(12);
+    doc.setTextColor(0);
+    doc.text(`Liquidacion de expensas - ${periodo.mes}/${periodo.anio}`, 14, 34);
     doc.setFontSize(10);
-    doc.setTextColor(120);
-    doc.text(consorcio.direccion, 14, 24);
+    doc.text(`Unidad: ${unidad.identificador}`, 14, 41);
+
+    if (typeof doc.autoTable !== 'function') {
+      alert('No se pudo cargar el plugin de tablas del PDF (jspdf-autotable). Revisa tu conexion a internet y recarga la pagina.');
+      return;
+    }
+
+    doc.autoTable({
+      startY: 48,
+      head: [['Categoria', 'Descripcion', 'Monto']],
+      body: detalle.map(d => [
+        d.categorias_gasto?.nombre || '',
+        d.gastos?.descripcion || '',
+        '$' + Number(d.monto_prorrateado).toLocaleString('es-AR'),
+      ]),
+      foot: [['', 'Total', '$' + Number(liq.monto_total).toLocaleString('es-AR')]],
+      styles: { fontSize: 9 },
+      headStyles: { fillColor: [15, 92, 78] },
+      footStyles: { fillColor: [241, 239, 232], textColor: [35, 34, 32] },
+    });
+
+    doc.save(`liquidacion_${unidad.identificador}_${periodo.mes}-${periodo.anio}.pdf`);
+  } catch (err) {
+    console.error(err);
+    alert('Error generando el PDF: ' + (err?.message || JSON.stringify(err)));
   }
-
-  doc.setFontSize(12);
-  doc.setTextColor(0);
-  doc.text(`Liquidacion de expensas - ${periodo.mes}/${periodo.anio}`, 14, 34);
-  doc.setFontSize(10);
-  doc.text(`Unidad: ${unidad.identificador}`, 14, 41);
-
-  doc.autoTable({
-    startY: 48,
-    head: [['Categoria', 'Descripcion', 'Monto']],
-    body: detalle.map(d => [
-      d.categorias_gasto?.nombre || '',
-      d.gastos?.descripcion || '',
-      '$' + Number(d.monto_prorrateado).toLocaleString('es-AR'),
-    ]),
-    foot: [['', 'Total', '$' + Number(liq.monto_total).toLocaleString('es-AR')]],
-    styles: { fontSize: 9 },
-    headStyles: { fillColor: [15, 92, 78] },
-    footStyles: { fillColor: [241, 239, 232], textColor: [35, 34, 32] },
-  });
-
-  doc.save(`liquidacion_${unidad.identificador}_${periodo.mes}-${periodo.anio}.pdf`);
 }
 
 async function crearPeriodo(event) {
