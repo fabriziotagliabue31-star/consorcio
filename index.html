@@ -280,7 +280,8 @@
         <div id="gv-subtotales"></div>
         <div id="gv-lista"></div>
         <form class="inline" onsubmit="cargarGasto(event)">
-          <label>Categoría<select id="gv-categoria"></select></label>
+          <label>Categoría<select id="gv-categoria" onchange="toggleUnidadDestino()"></select></label>
+          <label id="gv-unidad-destino-wrap" class="hidden">Unidad<select id="gv-unidad-destino"></select></label>
           <label>Descripción<input type="text" id="gv-descripcion" required /></label>
           <label>Monto<input type="number" id="gv-monto" step="0.01" required /></label>
           <label>Tipo
@@ -371,11 +372,12 @@
               <option value="coeficiente_general">Coeficiente general</option>
               <option value="partes_iguales">Partes iguales</option>
               <option value="coeficiente_especial">Coeficiente especial</option>
+              <option value="unidad_especifica">Unidad específica</option>
             </select>
           </label>
           <button class="primary" type="submit">+ Nueva categoría</button>
         </form>
-        <p class="muted-note" style="margin-top:8px;">"Coeficiente especial" requiere elegir después qué unidades participan — todavía no tiene pantalla propia.</p>
+        <p class="muted-note" style="margin-top:8px;">"Coeficiente especial" requiere elegir después qué unidades participan — todavía no tiene pantalla propia. "Unidad específica" es para gastos que le corresponden a un solo departamento (ej: una rotura adentro de esa unidad) — al cargar el gasto, elegís a cuál.</p>
         <p class="error hidden" id="cf-error"></p>
       </div>
 
@@ -860,7 +862,23 @@ async function cargarGastosView() {
     return opcionPadre + opcionesHijos;
   }).join('') || '<option value="">Sin categorías</option>';
 
+  toggleUnidadDestino();
   await cargarGastosLista();
+}
+
+function toggleUnidadDestino() {
+  const catId = document.getElementById('gv-categoria').value;
+  const cat = categoriasActuales.find(c => c.id === catId);
+  const wrap = document.getElementById('gv-unidad-destino-wrap');
+
+  if (cat && cat.tipo_prorrateo === 'unidad_especifica') {
+    wrap.classList.remove('hidden');
+    document.getElementById('gv-unidad-destino').innerHTML = unidadesActuales.map(u =>
+      `<option value="${u.id}">${u.identificador}</option>`
+    ).join('') || '<option value="">Sin unidades</option>';
+  } else {
+    wrap.classList.add('hidden');
+  }
 }
 
 async function cargarGastosLista() {
@@ -930,14 +948,27 @@ async function cargarGasto(event) {
   const periodoId = document.getElementById('gv-periodo').value;
   if (!periodoId) { errorEl.textContent = 'Primero creá un período.'; errorEl.classList.remove('hidden'); return; }
 
+  const categoriaId = document.getElementById('gv-categoria').value;
+  const categoriaSeleccionada = categoriasActuales.find(c => c.id === categoriaId);
+  let unidadDestinoId = null;
+  if (categoriaSeleccionada && categoriaSeleccionada.tipo_prorrateo === 'unidad_especifica') {
+    unidadDestinoId = document.getElementById('gv-unidad-destino').value;
+    if (!unidadDestinoId) {
+      errorEl.textContent = 'Elegí a qué unidad le corresponde este gasto.';
+      errorEl.classList.remove('hidden');
+      return;
+    }
+  }
+
   const payload = {
     consorcio_id: consorcioActual,
     periodo_id: periodoId,
-    categoria_id: document.getElementById('gv-categoria').value,
+    categoria_id: categoriaId,
     descripcion: document.getElementById('gv-descripcion').value,
     monto: parseFloat(document.getElementById('gv-monto').value),
     tipo: document.getElementById('gv-tipo').value,
     fecha_comprobante: document.getElementById('gv-fecha').value,
+    unidad_destino_id: unidadDestinoId,
   };
   const { error } = await client.from('gastos').insert(payload);
   if (error) { errorEl.textContent = error.message; errorEl.classList.remove('hidden'); return; }
@@ -1294,6 +1325,7 @@ function editarCategoria(id) {
         <option value="coeficiente_general" ${cat.tipo_prorrateo === 'coeficiente_general' ? 'selected' : ''}>Coeficiente general</option>
         <option value="partes_iguales" ${cat.tipo_prorrateo === 'partes_iguales' ? 'selected' : ''}>Partes iguales</option>
         <option value="coeficiente_especial" ${cat.tipo_prorrateo === 'coeficiente_especial' ? 'selected' : ''}>Coeficiente especial</option>
+        <option value="unidad_especifica" ${cat.tipo_prorrateo === 'unidad_especifica' ? 'selected' : ''}>Unidad específica</option>
       </select>
       <button class="primary" onclick="guardarCategoria('${id}')">Guardar</button>
       <button onclick="cargarConfiguracionView()">Cancelar</button>
