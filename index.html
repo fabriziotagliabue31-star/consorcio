@@ -11,6 +11,7 @@
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.5.25/dist/jspdf.plugin.autotable.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <style>
   :root{
     --bg:#F2F8FC; --card:#FFFFFF; --tile:#E7F2FB;
@@ -231,6 +232,16 @@
         <div class="card-head"><h2>Cuentas por unidad</h2></div>
         <div id="dash-lista-unidades"></div>
       </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>Gastos por categoría</h2>
+          <select id="dash-periodo" onchange="cargarGraficoCategorias()"></select>
+        </div>
+        <div style="height:280px;">
+          <canvas id="chart-categorias"></canvas>
+        </div>
+      </div>
     </section>
 
     <section id="view-unidades" class="hidden">
@@ -328,6 +339,9 @@
         <div id="cf-lista"></div>
         <form class="inline" onsubmit="crearCategoria(event)">
           <label>Nombre<input type="text" id="cf-nombre" required /></label>
+          <label>Categoría madre (opcional)
+            <select id="cf-padre"><option value="">Ninguna — de primer nivel</option></select>
+          </label>
           <label>Criterio de prorrateo
             <select id="cf-tipo">
               <option value="coeficiente_general">Coeficiente general</option>
@@ -569,7 +583,7 @@ async function cambiarConsorcio() {
   const [{ data: unidades }, { data: periodos }, { data: categorias }] = await Promise.all([
     client.from('unidades_funcionales').select('id, identificador').eq('consorcio_id', consorcioActual).eq('activa', true).order('identificador'),
     client.from('periodos_liquidacion').select('id, mes, anio, estado').eq('consorcio_id', consorcioActual).order('anio', { ascending: false }).order('mes', { ascending: false }),
-    client.from('categorias_gasto').select('id, nombre, tipo_prorrateo').eq('consorcio_id', consorcioActual).order('nombre'),
+    client.from('categorias_gasto').select('id, nombre, tipo_prorrateo, categoria_padre_id').eq('consorcio_id', consorcioActual).order('nombre'),
   ]);
 
   unidadesActuales = unidades || [];
@@ -602,6 +616,64 @@ async function cargarDashboard() {
   document.getElementById('kpi-unidades').textContent = unidadesActuales.length;
   document.getElementById('kpi-deuda').textContent = conDeuda;
   document.getElementById('kpi-pendiente').textContent = '$' + pendiente.toLocaleString('es-AR');
+
+  document.getElementById('dash-periodo').innerHTML = periodosActuales.map(p =>
+    `<option value="${p.id}">${p.mes}/${p.anio}</option>`
+  ).join('') || '<option value="">Sin períodos</option>';
+  await cargarGraficoCategorias();
+}
+
+let chartCategorias = null;
+const PALETA_CATEGORIAS = ['#0B6FB0', '#3B6D11', '#8A5A12', '#A32D2D', '#5C7182', '#7FBBE8', '#639922', '#BA7517'];
+
+async function cargarGraficoCategorias() {
+  const periodoId = document.getElementById('dash-periodo').value;
+  const canvas = document.getElementById('chart-categorias');
+  if (!periodoId) { if (chartCategorias) { chartCategorias.destroy(); chartCategorias = null; } return; }
+
+  const { data, error } = await client.from('gastos').select('categoria_id, monto').eq('periodo_id', periodoId);
+  if (error) { mostrarToast('Error cargando el gráfico: ' + error.message, 'error'); return; }
+
+  const catPorId = Object.fromEntries(categoriasActuales.map(c => [c.id, c]));
+  const totales = {};
+  data.forEach(g => {
+    const cat = catPorId[g.categoria_id];
+    let nombre = 'Sin categoría';
+    if (cat) {
+      nombre = (cat.categoria_padre_id && catPorId[cat.categoria_padre_id])
+        ? catPorId[cat.categoria_padre_id].nombre
+        : cat.nombre;
+    }
+    totales[nombre] = (totales[nombre] || 0) + Number(g.monto);
+  });
+
+  if (chartCategorias) chartCategorias.destroy();
+
+  if (Object.keys(totales).length === 0) {
+    chartCategorias = null;
+    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+    return;
+  }
+
+  chartCategorias = new Chart(canvas.getContext('2d'), {
+    type: 'pie',
+    data: {
+      labels: Object.keys(totales),
+      datasets: [{ data: Object.values(totales), backgroundColor: PALETA_CATEGORIAS, borderWidth: 0 }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { color: '#1D2B36', font: { size: 12 } } },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => ` ${ctx.label}: $${Number(ctx.raw).toLocaleString('es-AR')}`,
+          },
+        },
+      },
+    },
+  });
 }
 
 async function cargarUnidadesView() {
@@ -749,9 +821,13 @@ async function cargarGastosView() {
     `<option value="${p.id}">${p.mes}/${p.anio} — ${p.estado}</option>`
   ).join('') || '<option value="">Sin períodos</option>';
 
-  document.getElementById('gv-categoria').innerHTML = categoriasActuales.map(c =>
-    `<option value="${c.id}">${c.nombre}</option>`
-  ).join('') || '<option value="">Sin categorías</option>';
+  const padresGv = categoriasActuales.filter(c => !c.categoria_padre_id);
+  document.getElementById('gv-categoria').innerHTML = padresGv.map(p => {
+    const hijos = categoriasActuales.filter(c => c.categoria_padre_id === p.id);
+    const opcionPadre = `<option value="${p.id}">${p.nombre}</option>`;
+    const opcionesHijos = hijos.map(h => `<option value="${h.id}">&nbsp;&nbsp;↳ ${h.nombre}</option>`).join('');
+    return opcionPadre + opcionesHijos;
+  }).join('') || '<option value="">Sin categorías</option>';
 
   await cargarGastosLista();
 }
@@ -1062,21 +1138,42 @@ async function registrarPago(event) {
 }
 
 async function cargarConfiguracionView() {
-  document.getElementById('cf-lista').innerHTML = categoriasActuales.map(c => `
-    <div class="row" id="cat-row-${c.id}">
-      <span>${c.nombre}</span>
-      <span><span class="badge ok">${c.tipo_prorrateo.replace('_', ' ')}</span> <button onclick="editarCategoria('${c.id}')">Editar</button></span>
-    </div>
-  `).join('') || '<p class="muted-note">Sin categorías todavía.</p>';
+  const padres = categoriasActuales.filter(c => !c.categoria_padre_id);
+  const hijosPorPadre = {};
+  categoriasActuales.filter(c => c.categoria_padre_id).forEach(c => {
+    (hijosPorPadre[c.categoria_padre_id] = hijosPorPadre[c.categoria_padre_id] || []).push(c);
+  });
+
+  document.getElementById('cf-lista').innerHTML = padres.map(p => {
+    const filaPadre = `
+      <div class="row" id="cat-row-${p.id}">
+        <span>${p.nombre}</span>
+        <span><span class="badge ok">${p.tipo_prorrateo.replace('_', ' ')}</span> <button onclick="editarCategoria('${p.id}')">Editar</button></span>
+      </div>`;
+    const filasHijos = (hijosPorPadre[p.id] || []).map(h => `
+      <div class="row" id="cat-row-${h.id}" style="padding-left:26px;">
+        <span>↳ ${h.nombre}</span>
+        <span><span class="badge ok">${h.tipo_prorrateo.replace('_', ' ')}</span> <button onclick="editarCategoria('${h.id}')">Editar</button></span>
+      </div>`).join('');
+    return filaPadre + filasHijos;
+  }).join('') || '<p class="muted-note">Sin categorías todavía.</p>';
+
+  document.getElementById('cf-padre').innerHTML = '<option value="">Ninguna — de primer nivel</option>' +
+    padres.map(p => `<option value="${p.id}">${p.nombre}</option>`).join('');
 }
 
 function editarCategoria(id) {
   const cat = categoriasActuales.find(c => c.id === id);
   if (!cat) return;
+  const otrasPadres = categoriasActuales.filter(c => !c.categoria_padre_id && c.id !== id);
   const row = document.getElementById('cat-row-' + id);
   row.outerHTML = `
     <div class="row" id="cat-row-${id}">
       <input type="text" id="edit-nombre-${id}" value="${cat.nombre}" style="flex:1;" />
+      <select id="edit-padre-${id}">
+        <option value="">Ninguna — de primer nivel</option>
+        ${otrasPadres.map(p => `<option value="${p.id}" ${cat.categoria_padre_id === p.id ? 'selected' : ''}>${p.nombre}</option>`).join('')}
+      </select>
       <select id="edit-tipo-${id}">
         <option value="coeficiente_general" ${cat.tipo_prorrateo === 'coeficiente_general' ? 'selected' : ''}>Coeficiente general</option>
         <option value="partes_iguales" ${cat.tipo_prorrateo === 'partes_iguales' ? 'selected' : ''}>Partes iguales</option>
@@ -1091,8 +1188,9 @@ function editarCategoria(id) {
 async function guardarCategoria(id) {
   const nombre = document.getElementById('edit-nombre-' + id).value;
   const tipo_prorrateo = document.getElementById('edit-tipo-' + id).value;
+  const categoria_padre_id = document.getElementById('edit-padre-' + id).value || null;
 
-  const { error } = await client.from('categorias_gasto').update({ nombre, tipo_prorrateo }).eq('id', id);
+  const { error } = await client.from('categorias_gasto').update({ nombre, tipo_prorrateo, categoria_padre_id }).eq('id', id);
   if (error) { mostrarToast('Error actualizando categoría: ' + error.message, 'error'); return; }
   await cambiarConsorcio();
   mostrarToast('Categoría actualizada.', 'success');
@@ -1107,6 +1205,7 @@ async function crearCategoria(event) {
     consorcio_id: consorcioActual,
     nombre: document.getElementById('cf-nombre').value,
     tipo_prorrateo: document.getElementById('cf-tipo').value,
+    categoria_padre_id: document.getElementById('cf-padre').value || null,
   };
   const { error } = await client.from('categorias_gasto').insert(payload);
   if (error) { errorEl.textContent = error.message; errorEl.classList.remove('hidden'); return; }
