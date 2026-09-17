@@ -75,6 +75,8 @@
   form.inline{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-top:0.75rem;}
   form.inline label{display:flex;flex-direction:column;font-size:12px;color:var(--text2);gap:4px;}
 
+  .subtotal-box{background:var(--tile);border-radius:10px;padding:0.25rem 1rem;margin-bottom:14px;}
+  .subtotal-box .row:last-child{border-top:1px solid var(--border);border-bottom:none;}
   .step-row{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);align-items:flex-start;}
   .step-row:last-child{border-bottom:none;}
   .step-num{font-weight:700;color:var(--accent);width:22px;flex-shrink:0;font-size:15px;}
@@ -275,6 +277,7 @@
           <h2>Gastos del período</h2>
           <select id="gv-periodo" onchange="cargarGastosLista()"></select>
         </div>
+        <div id="gv-subtotales"></div>
         <div id="gv-lista"></div>
         <form class="inline" onsubmit="cargarGasto(event)">
           <label>Categoría<select id="gv-categoria"></select></label>
@@ -835,11 +838,13 @@ async function cargarGastosView() {
 async function cargarGastosLista() {
   const periodoId = document.getElementById('gv-periodo').value;
   const lista = document.getElementById('gv-lista');
-  if (!periodoId) { lista.innerHTML = ''; return; }
+  const subtotales = document.getElementById('gv-subtotales');
+  if (!periodoId) { lista.innerHTML = ''; subtotales.innerHTML = ''; return; }
   lista.innerHTML = skeletonRows(3);
+  subtotales.innerHTML = '';
 
   const { data, error } = await client.from('gastos')
-    .select('id, descripcion, monto, tipo, categorias_gasto(nombre)')
+    .select('id, descripcion, monto, tipo, categoria_id, categorias_gasto(nombre)')
     .eq('periodo_id', periodoId)
     .order('fecha_comprobante', { ascending: false });
   if (error) { mostrarToast('Error cargando gastos: ' + error.message, 'error'); return; }
@@ -850,6 +855,44 @@ async function cargarGastosLista() {
       <span>$${Number(g.monto).toLocaleString('es-AR')}</span>
     </div>
   `).join('') || '<p class="muted-note">Sin gastos en este período.</p>';
+
+  renderSubtotalesCategoria(data, subtotales);
+}
+
+function renderSubtotalesCategoria(gastos, contenedor) {
+  if (gastos.length === 0) { contenedor.innerHTML = ''; return; }
+
+  const catPorId = Object.fromEntries(categoriasActuales.map(c => [c.id, c]));
+  const totalesPadre = {};
+  const totalesHijo = {};
+
+  gastos.forEach(g => {
+    const cat = catPorId[g.categoria_id];
+    if (!cat) return;
+    const monto = Number(g.monto);
+
+    if (cat.categoria_padre_id && catPorId[cat.categoria_padre_id]) {
+      const padre = catPorId[cat.categoria_padre_id];
+      totalesPadre[padre.id] = totalesPadre[padre.id] || { nombre: padre.nombre, total: 0 };
+      totalesPadre[padre.id].total += monto;
+      totalesHijo[cat.id] = totalesHijo[cat.id] || { nombre: cat.nombre, total: 0, padreId: padre.id };
+      totalesHijo[cat.id].total += monto;
+    } else {
+      totalesPadre[cat.id] = totalesPadre[cat.id] || { nombre: cat.nombre, total: 0 };
+      totalesPadre[cat.id].total += monto;
+    }
+  });
+
+  const filas = Object.entries(totalesPadre).map(([catId, info]) => {
+    const hijos = Object.values(totalesHijo).filter(h => h.padreId === catId);
+    const filaPadre = `<div class="row"><span style="font-weight:500;">${info.nombre}</span><span style="font-weight:600;">$${info.total.toLocaleString('es-AR')}</span></div>`;
+    const filasHijos = hijos.map(h => `<div class="row"><span style="color:var(--text2);font-size:13px;padding-left:18px;">↳ ${h.nombre}</span><span style="color:var(--text2);font-size:13px;">$${h.total.toLocaleString('es-AR')}</span></div>`).join('');
+    return filaPadre + filasHijos;
+  }).join('');
+
+  const totalGeneral = gastos.reduce((acc, g) => acc + Number(g.monto), 0);
+
+  contenedor.innerHTML = `<div class="subtotal-box">${filas}<div class="row"><span style="font-weight:600;">Total del período</span><span style="font-weight:700;">$${totalGeneral.toLocaleString('es-AR')}</span></div></div>`;
 }
 
 async function cargarGasto(event) {
