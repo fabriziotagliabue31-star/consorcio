@@ -338,6 +338,27 @@
 
     <section id="view-configuracion" class="hidden">
       <div class="card">
+        <div class="card-head"><h2>Datos del consorcio</h2></div>
+        <form class="inline" onsubmit="guardarDatosConsorcio(event)">
+          <label>Nombre<input type="text" id="cs-nombre" required /></label>
+          <label>Dirección<input type="text" id="cs-direccion" /></label>
+          <button class="primary" type="submit">Guardar</button>
+        </form>
+        <p class="error hidden" id="cs-error"></p>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>Otro edificio</h2></div>
+        <p class="muted-note" style="margin-top:0;">¿Administrás más de un edificio? Agregalo acá — vas a poder elegirlo desde el selector de arriba.</p>
+        <form class="inline" onsubmit="crearConsorcio(event)">
+          <label>Nombre<input type="text" id="nc-nombre" required /></label>
+          <label>Dirección<input type="text" id="nc-direccion" /></label>
+          <button class="primary" type="submit">+ Nuevo edificio</button>
+        </form>
+        <p class="error hidden" id="nc-error"></p>
+      </div>
+
+      <div class="card">
         <div class="card-head"><h2>Categorías de gasto</h2></div>
         <div id="cf-lista"></div>
         <form class="inline" onsubmit="crearCategoria(event)">
@@ -438,6 +459,8 @@ const SUPABASE_KEY = 'sb_publishable_r_b6XWYYo-v_03RjcvJA6w_0QKHIvD6';
 const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let consorcioActual = null;
+let administradoraActualId = null;
+let consorcioActualDatos = null;
 let unidadesActuales = [];
 let periodosActuales = [];
 let categoriasActuales = [];
@@ -566,6 +589,9 @@ async function mostrarApp() {
   document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('app-screen').classList.remove('hidden');
 
+  const { data: admData } = await client.rpc('fn_administradora_actual');
+  administradoraActualId = admData;
+
   const { data, error } = await client.from('consorcios').select('id, nombre').order('nombre');
   if (error) { mostrarToast('Error cargando consorcios: ' + error.message, 'error'); return; }
 
@@ -583,15 +609,17 @@ async function cambiarConsorcio() {
   consorcioActual = document.getElementById('consorcio-select').value;
   if (!consorcioActual) return;
 
-  const [{ data: unidades }, { data: periodos }, { data: categorias }] = await Promise.all([
+  const [{ data: unidades }, { data: periodos }, { data: categorias }, { data: consorcioDatos }] = await Promise.all([
     client.from('unidades_funcionales').select('id, identificador').eq('consorcio_id', consorcioActual).eq('activa', true).order('identificador'),
     client.from('periodos_liquidacion').select('id, mes, anio, estado').eq('consorcio_id', consorcioActual).order('anio', { ascending: false }).order('mes', { ascending: false }),
     client.from('categorias_gasto').select('id, nombre, tipo_prorrateo, categoria_padre_id').eq('consorcio_id', consorcioActual).order('nombre'),
+    client.from('consorcios').select('nombre, direccion').eq('id', consorcioActual).single(),
   ]);
 
   unidadesActuales = unidades || [];
   periodosActuales = periodos || [];
   categoriasActuales = categorias || [];
+  consorcioActualDatos = consorcioDatos || null;
   switchView(currentView);
 }
 
@@ -1180,7 +1208,52 @@ async function registrarPago(event) {
   mostrarToast('Pago registrado.', 'success');
 }
 
+async function guardarDatosConsorcio(event) {
+  event.preventDefault();
+  const errorEl = document.getElementById('cs-error');
+  errorEl.classList.add('hidden');
+
+  const nombre = document.getElementById('cs-nombre').value;
+  const direccion = document.getElementById('cs-direccion').value;
+
+  const { error } = await client.from('consorcios').update({ nombre, direccion }).eq('id', consorcioActual);
+  if (error) { errorEl.textContent = error.message; errorEl.classList.remove('hidden'); return; }
+
+  await mostrarApp();
+  mostrarToast('Datos del consorcio actualizados.', 'success');
+}
+
+async function crearConsorcio(event) {
+  event.preventDefault();
+  const errorEl = document.getElementById('nc-error');
+  errorEl.classList.add('hidden');
+
+  if (!administradoraActualId) {
+    errorEl.textContent = 'No se pudo identificar tu administradora. Recargá la página e intentá de nuevo.';
+    errorEl.classList.remove('hidden');
+    return;
+  }
+
+  const payload = {
+    administradora_id: administradoraActualId,
+    nombre: document.getElementById('nc-nombre').value,
+    direccion: document.getElementById('nc-direccion').value,
+  };
+  const { data, error } = await client.from('consorcios').insert(payload).select('id').single();
+  if (error) { errorEl.textContent = error.message; errorEl.classList.remove('hidden'); return; }
+
+  document.getElementById('nc-nombre').value = '';
+  document.getElementById('nc-direccion').value = '';
+  await mostrarApp();
+  document.getElementById('consorcio-select').value = data.id;
+  await cambiarConsorcio();
+  mostrarToast('Edificio creado.', 'success');
+}
+
 async function cargarConfiguracionView() {
+  document.getElementById('cs-nombre').value = consorcioActualDatos?.nombre || '';
+  document.getElementById('cs-direccion').value = consorcioActualDatos?.direccion || '';
+
   const padres = categoriasActuales.filter(c => !c.categoria_padre_id);
   const hijosPorPadre = {};
   categoriasActuales.filter(c => c.categoria_padre_id).forEach(c => {
